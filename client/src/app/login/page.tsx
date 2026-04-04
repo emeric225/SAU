@@ -8,6 +8,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [stations, setStations] = useState<any[]>([]);
   const [selectedStation, setSelectedStation] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +28,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: selectedStation })
+        body: JSON.stringify({ stationId: selectedStation, password })
       });
 
       const data = await res.json();
@@ -67,6 +68,18 @@ export default function LoginPage() {
                 <option key={s.id} value={s.id}>{s.name} - {s.city}</option>
               ))}
             </select>
+          </div>
+
+          <div className={styles.field}>
+            <label>Mot de passe</label>
+            <input 
+              type="password" 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={styles.input}
+              placeholder="Entrez votre mot de passe..."
+              required
+            />
           </div>
 
           <button type="submit" disabled={loading} className={styles.loginBtn}>

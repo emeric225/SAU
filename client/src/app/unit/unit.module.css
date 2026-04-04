@@ -1,0 +1,491 @@
+.unitContainer {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  color: white;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.loginContainer {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: radial-gradient(circle at center, #1e293b 0%, #0a0e17 100%);
+  padding: 2rem;
+}
+
+.loginCard {
+  width: 100%;
+  max-width: 420px;
+  padding: 48px;
+  background: rgba(30, 41, 59, 0.6);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 32px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 40px;
+  font-weight: 950;
+  color: #ef4444;
+  letter-spacing: -2px;
+  margin-bottom: 8px;
+}
+
+.loginTitle {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  margin: 0;
+  color: #fff;
+}
+
+.loginSub {
+  color: #94a3b8;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.loginInput {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.4);
+  color: white;
+  width: 100%;
+  font-size: 16px;
+  text-align: center;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.loginInput:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+.btnLogin {
+  background: #3b82f6;
+  color: white;
+  padding: 18px;
+  border-radius: 16px;
+  border: none;
+  width: 100%;
+  font-weight: 800;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
+}
+
+.btnLogin:hover {
+  background: #2563eb;
+  transform: translateY(-2px);
+}
+
+.loginFooter {
+  margin-top: 32px;
+  font-size: 11px;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: #18181b;
+  border-bottom: 1px solid #27272a;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.unitName {
+  font-size: 20px;
+  font-weight: 900;
+  margin: 0;
+  margin-bottom: 4px;
+}
+
+.badge {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 99px;
+  display: inline-block;
+}
+.badgeAvailable { background: #22c55e; color: black; }
+.badgeEnRoute { background: #f97316; color: black; }
+.badgeOnSite { background: #ef4444; color: white; }
+
+.mapArea {
+  flex: 1;
+  position: relative;
+  z-index: 0;
+}
+
+.popup {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  padding: 24px;
+  background: rgba(24, 24, 27, 0.95);
+  backdrop-filter: blur(12px);
+  border-radius: 24px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  z-index: 50;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 -10px 40px rgba(239, 68, 68, 0.2);
+  animation: slideUp 0.3s ease-out forwards;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.popupTitle {
+  font-size: 24px;
+  font-weight: 900;
+  color: #ef4444;
+  margin: 0 0 8px 0;
+}
+
+.popupText {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+}
+
+.popupSub {
+  color: #a1a1aa;
+  margin: 0 0 16px 0;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.btnAccept {
+  flex: 1;
+  background: #22c55e;
+  color: black;
+  font-weight: 900;
+  font-size: 18px;
+  padding: 16px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+}
+
+.btnRefuse {
+  flex: 1;
+  background: #27272a;
+  color: white;
+  font-weight: 900;
+  font-size: 18px;
+  padding: 16px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+}
+
+.navPanel {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  padding: 16px;
+  background: rgba(24, 24, 27, 0.95);
+  backdrop-filter: blur(12px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 50;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+}
+
+.floatingEta {
+  position: absolute;
+  top: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(24, 24, 27, 0.9);
+  backdrop-filter: blur(10px);
+  padding: 16px 32px;
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  gap: 20px;
+  align-items: baseline;
+  z-index: 40;
+}
+
+.etaValue {
+  font-size: 32px;
+  font-weight: 900;
+  color: #22c55e;
+}
+
+.etaDistance {
+  font-size: 18px;
+  font-weight: 600;
+  color: #a1a1aa;
+}
+
+.btnAction {
+  width: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  border: none;
+  font-weight: 900;
+  font-size: 20px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.btnOnSite { background: #f97316; color: black; }
+.btnResolved { background: #22c55e; color: black; }
+
+/* Report Modal Styles */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.reportCard {
+  background: #18181b;
+  border-radius: 24px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  width: 100%;
+  max-width: 500px;
+  padding: 32px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.reportHeader {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.reportTitle {
+  font-size: 24px;
+  font-weight: 900;
+  color: #3b82f6;
+  margin: 0 0 8px 0;
+}
+
+.reportSub {
+  color: #a1a1aa;
+  font-size: 14px;
+}
+
+.reportForm {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formGroup label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.popupDetailsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 20px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.missionNotes {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+  color: #fff;
+  line-height: 1.4;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.reportTextarea, .reportInput, .reportSelect {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 14px;
+  color: white;
+  font-size: 16px;
+  font-family: inherit;
+}
+
+.reportTextarea {
+  min-height: 100px;
+  resize: none;
+}
+
+.reportActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.btnSubmitReport {
+  flex: 2;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 16px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.btnSubmitReport:active { transform: scale(0.98); }
+
+.btnCancelReport {
+  flex: 1;
+  background: #27272a;
+  color: #a1a1aa;
+  border: none;
+  padding: 16px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* MISSION PHOTO THUMB & VIEWER */
+.missionPhotoThumb {
+  width: 100%;
+  height: 140px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.missionPhotoThumb:hover {
+  transform: scale(1.02);
+  border-color: #3b82f6;
+  box-shadow: 0 8px 12px rgba(59, 130, 246, 0.4);
+}
+
+.missionPhotoThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photoViewerOverlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.3s;
+}
+
+.photoViewerContent {
+  position: relative;
+  max-width: 95vw;
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.photoViewerImage {
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  object-fit: contain;
+}
+
+.btnClosePhoto {
+  position: absolute;
+  top: -15px;
+  right: -15px;
+  background: #e11d48;
+  border: none;
+  color: white;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+}
+
+.photoViewerActions {
+  margin-top: 16px;
+}
+
+.btnDownloadPhoto {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
+}
+
+.btnDownloadPhoto:hover {
+  background: #2563eb;
+  transform: translateY(-2px);
+}

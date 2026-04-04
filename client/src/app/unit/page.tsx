@@ -1,0 +1,304 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { io, Socket } from 'socket.io-client';
+import styles from './unit.module.css';
+
+const UnitMap = dynamic(() => import('../../components/Map'), { ssr: false });
+
+export default function UnitInterface() {
+  const [unitId, setUnitId] = useState('');
+  const [unit, setUnit] = useState<any>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [mission, setMission] = useState<any>(null);
+  const [routeData, setRouteData] = useState<any>(null);
+  const [showReport, setShowReport] = useState(false);
+  const [gpsLocked, setGpsLocked] = useState(false);
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
+
+  const handleDownloadPhoto = async (url: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `SAU-Terrain-Photo-${Date.now()}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      console.error('Failed to download image', e);
+      window.open(url, '_blank');
+    }
+  };
+
+  const loginUnit = async () => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stationId: unitId })
+      });
+      const data = await res.json();
+      if (data.success && data.isUnit) {
+        setUnit(data.station);
+        if (data.currentMission) {
+          setMission(data.currentMission);
+        }
+        initSocket(data.station.id);
+      } else {
+        alert("ID Unité non valide (ex: u1, u2)");
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const initSocket = (id: string) => {
+    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:3008';
+    const s = io(serverUrl, {
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+      reconnection: true
+    });
+    setSocket(s);
+    s.emit('join_room', id);
+
+    s.on('mission_received', (alertObj) => {
+      setMission(alertObj);
+      // Play sound if bonus requested
+    });
+  };
+
+  const updateStatus = (status: string) => {
+    if (socket && unit) {
+      socket.emit('unit_status_update', { unitId: unit.id, status, alertId: mission?.id });
+      setUnit({ ...unit, status });
+    }
+  };
+
+  const handleReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const reportData = {
+      actions: form.actions.value,
+      conclusion: form.conclusion.value,
+      victimes: form.victimes.value,
+      timestamp: new Date()
+    };
+
+    try {
+      const res = await fetch(`/api/alerts/${mission.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'resolved', report: reportData })
+      });
+      if (res.ok) {
+        updateStatus('available');
+        setMission(null);
+        setRouteData(null);
+        setShowReport(false);
+      }
+    } catch (err) {
+      console.error("Report submission error:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (!unit || !socket) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setGpsLocked(true);
+        setUnit((prev: any) => prev ? { ...prev, lat, lng } : prev);
+        socket.emit('update_unit_position', { unitId: unit.id, lat, lng });
+      },
+      (err) => console.warn(err),
+      { enableHighAccuracy: true }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [unit?.id, socket]);
+
+  if (!unit) {
+    return (
+      <div className={styles.unitContainer}>
+        <div className={styles.loginContainer}>
+          <div className={styles.loginCard}>
+            <div className={styles.logo}>SAU</div>
+            <h1 className={styles.loginTitle}>UNITÉ TACTIQUE</h1>
+            <p className={styles.loginSub}>Identifiez votre véhicule pour rejoindre le réseau opérationnel</p>
+            
+            <input
+              autoFocus
+              className={styles.loginInput}
+              placeholder="Ex: u1, u2, u3"
+              value={unitId}
+              onChange={e => setUnitId(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && loginUnit()}
+            />
+            
+            <button onClick={loginUnit} className={styles.btnLogin}>
+              CONTRÔLE DU VÉHICULE
+            </button>
+
+            <div className={styles.loginFooter}>
+              Système de Navigation d'Urgence v2.2
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const getBadgeClass = (status: string) => {
+    if (status === 'en_route') return styles.badgeEnRoute;
+    if (status === 'on_site') return styles.badgeOnSite;
+    return styles.badgeAvailable;
+  };
+
+  return (
+    <div className={styles.unitContainer}>
+      {/* Header */}
+      <div className={styles.header}>
+        <div>
+          <h2 className={styles.unitName}>{unit.name?.toUpperCase()}</h2>
+          <span className={`${styles.badge} ${getBadgeClass(unit.status)}`}>
+            {unit.status.toUpperCase()}
+          </span>
+        </div>
+      </div>
+
+      {/* Map Area */}
+      <div className={styles.mapArea}>
+         {gpsLocked ? (
+           <UnitMap 
+             stations={[]} 
+             alerts={mission ? [mission] : []}
+             units={unit.status === 'en_route' ? [] : [unit]}
+             selectedAlert={mission}
+             navigationActive={unit.status === 'en_route'}
+             onRouteDataReady={(d) => setRouteData(d)}
+             center={[unit.lat, unit.lng]}
+             isLiveUnitMode={true}
+           />
+         ) : (
+           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0a0a0a', color: '#3b82f6' }}>
+              <div style={{ fontSize: '32px', marginBottom: '16px', animation: 'spin 1s linear infinite' }}>🌍</div>
+              <strong>CALIBRAGE GPS EN COURS...</strong>
+              <span style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>Acquisition des coordonnées du véhicule</span>
+           </div>
+         )}
+      </div>
+
+      {/* Mission Popup */}
+      {mission && unit.status === 'available' && (
+        <div className={styles.popup}>
+          <h3 className={styles.popupTitle}>
+            🚨 MISSION ASSIGNÉE
+          </h3>
+          <p className={styles.popupText}>URGENCE: {mission.type.toUpperCase()}</p>
+          {mission.photo_url && (
+            <div className={styles.missionPhotoThumb} onClick={() => setViewingPhoto(mission.photo_url)}>
+              <img src={mission.photo_url} alt="Photo du signalement" />
+            </div>
+          )}
+          <div className={styles.popupDetailsGrid}>
+            <div><strong>APPELANT:</strong> {mission.name || 'ANONYME'}</div>
+            <div><strong>CONTACT:</strong> {mission.phone}</div>
+            <div className={styles.missionNotes}>
+              <strong>DÉTAILS:</strong><br/>
+              {mission.notes || 'Aucun détail fourni.'}
+            </div>
+            {routeData && (
+              <div style={{gridColumn: '1/-1', color: '#f97316', fontWeight: 800, marginTop: '8px'}}>
+                📍 {routeData.distanceKm.toFixed(1)} km — ETA: {Math.ceil(routeData.durationMin)} min
+              </div>
+            )}
+          </div>
+          
+          <div className={styles.actions}>
+            <button onClick={() => updateStatus('en_route')} className={styles.btnAccept}>
+              ✅ ACCEPTER
+            </button>
+            <button onClick={() => setMission(null)} className={styles.btnRefuse}>
+              ❌ REFUSER
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Active Navigation Panel */}
+      {mission && unit.status === 'en_route' && routeData && (
+        <div className={styles.floatingEta}>
+          <div className={styles.etaValue}>{Math.ceil(routeData.durationMin)}<span style={{fontSize: '16px'}}> min</span></div>
+          <div className={styles.etaDistance}>{routeData.distanceKm.toFixed(1)} km</div>
+        </div>
+      )}
+
+      {mission && unit.status !== 'available' && (
+        <div className={styles.navPanel}>
+           {unit.status === 'en_route' ? (
+             <button onClick={() => updateStatus('on_site')} className={`${styles.btnAction} ${styles.btnOnSite}`}>
+               📍 SIGNALER ARRIVÉE SUR PLACE
+             </button>
+           ) : (
+             <button onClick={() => setShowReport(true)} className={`${styles.btnAction} ${styles.btnResolved}`}>
+               ✅ VALIDER LA MISSION
+             </button>
+           )}
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReport && mission && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.reportCard}>
+            <div className={styles.reportHeader}>
+              <h2 className={styles.reportTitle}>RAPPORT D'INTERVENTION</h2>
+              <p className={styles.reportSub}>Mission : {mission.type.toUpperCase()} - {mission.name}</p>
+            </div>
+            <form className={styles.reportForm} onSubmit={handleReportSubmit}>
+              <div className={styles.formGroup}>
+                <label>Actions Prises</label>
+                <textarea name="actions" required placeholder="Décrivez les actions effectuées..." className={styles.reportTextarea}></textarea>
+              </div>
+              <div className={styles.formGroup}>
+                <label>Victimes / Bilan</label>
+                <input type="text" name="victimes" placeholder="Ex: 1 blessé léger" className={styles.reportInput} />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Conclusion</label>
+                <select name="conclusion" required className={styles.reportSelect}>
+                  <option value="success">Mission Réussie</option>
+                  <option value="transferred">Transféré aux Autorités</option>
+                  <option value="false_alarm">Fausse Alerte</option>
+                </select>
+              </div>
+              <div className={styles.reportActions}>
+                <button type="submit" className={styles.btnSubmitReport}>Soumettre le Rapport</button>
+                <button type="button" className={styles.btnCancelReport} onClick={() => setShowReport(false)}>Annuler</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PHOTO VIEWER MODAL */}
+      {viewingPhoto && (
+        <div className={styles.photoViewerOverlay} onClick={() => setViewingPhoto(null)}>
+          <div className={styles.photoViewerContent} onClick={(e) => e.stopPropagation()}>
+            <button className={styles.btnClosePhoto} onClick={() => setViewingPhoto(null)}>✕</button>
+            <img src={viewingPhoto} alt="Zoom Alerte" className={styles.photoViewerImage} />
+            <div className={styles.photoViewerActions}>
+               <button className={styles.btnDownloadPhoto} onClick={() => handleDownloadPhoto(viewingPhoto)}>
+                 📥 Télécharger la photo
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

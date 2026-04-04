@@ -16,13 +16,51 @@
   background: var(--bg-dark);
 }
 
-/* Floating Sidebar */
-.floatingPanel {
+/* Missing utility classes */
+.noAlerts {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 24px 0;
+  font-style: italic;
+}
+
+.mapPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-dark);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.loadingFull {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-dark);
+  color: var(--text-secondary);
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+
+.statCol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Floating Sidebar (HQ Main Panel) */
+.floatingPanel, .mainPanel {
   position: absolute;
   top: 20px;
-  left: 20px;
+  left: 100px;
   bottom: 20px;
-  width: 380px;
+  width: 400px;
   background: var(--bg-panel);
   backdrop-filter: blur(16px);
   border: 1px solid var(--border-glass);
@@ -32,7 +70,64 @@
   z-index: 1000;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   overflow: hidden;
+  transition: all 0.3s ease;
 }
+
+/* Sidebar with Navigation */
+.hqSideNav {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  bottom: 20px;
+  width: 70px;
+  background: var(--bg-panel);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0;
+  gap: 24px;
+  z-index: 1001;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.navIcon {
+  width: 44px;
+  height: 44px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 20px;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+
+.navIcon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.navIcon.activeNav {
+  background: var(--accent-blue);
+  color: white;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+.fullScreenMode .floatingPanel, 
+.fullScreenMode .mainPanel {
+  transform: translateX(-500px);
+}
+
+.fullScreenMode .mainPanel {
+  transform: translateX(-450px);
+}
+
 
 .panelHeader {
   padding: 20px;
@@ -182,6 +277,8 @@
 .typeBadge.fire { background: rgba(225, 29, 72, 0.2); color: #fb7185; }
 .typeBadge.medical { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
 .typeBadge.accident { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+.typeBadge.command { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+.typeBadge.tanker { background: rgba(249, 115, 22, 0.2); color: #fb923c; }
 
 .timeLabel {
   font-size: 11px;
@@ -192,12 +289,13 @@
   display: block;
   font-size: 15px;
   margin-bottom: 2px;
+  color: white;
 }
 
-.callerInfo a {
+.callerInfo span {
+  font-size: 12px;
   color: var(--accent-blue);
-  font-size: 13px;
-  text-decoration: none;
+  font-weight: 600;
 }
 
 .cardActions {
@@ -333,6 +431,31 @@
   font-size: 40px;
   font-weight: 900;
   color: #fff;
+  margin-bottom: 20px;
+}
+
+.emergencyPhotoThumb {
+  width: 140px;
+  height: 140px;
+  margin: 0 auto 24px auto;
+  border-radius: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+}
+
+.emergencyPhotoThumb:hover {
+  transform: scale(1.05);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.6);
+  border-color: var(--accent-red);
+}
+
+.emergencyPhotoThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .emergencyActions {
@@ -396,10 +519,48 @@
 }
 
 .locationSmall {
+  font-size: 12px;
+  color: var(--accent-blue);
+  margin-top: 6px;
+  font-weight: 500;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
+.emergencyMetaDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+}
+
+.emergencyMetaDetail p {
+  margin: 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.emergencyMetaDetail strong {
+  color: #fff;
   font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.emergencyNotes {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 16px;
+  color: #fff;
+  line-height: 1.5;
+  max-height: 150px;
+  overflow-y: auto;
+  word-break: break-word;
 }
 
 .fleetView {
@@ -425,7 +586,13 @@
   border: 1px solid var(--border-glass);
 }
 
-.fleetInfo strong { display: block; font-size: 13px; }
+.fleetInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fleetInfo strong { display: block; font-size: 13px; color: white; }
 .fleetInfo span { font-size: 11px; color: var(--text-secondary); }
 
 .fleetStatus {
@@ -506,6 +673,124 @@
 }
 
 .btnCancelAdmin {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  border: none;
+  padding: 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* UNIT ADDITION MODAL SPECIFIC */
+.unitModalOverlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.3s;
+}
+
+.unitModal {
+  background: #1e293b;
+  width: 90%;
+  max-width: 400px;
+  border: 1px solid var(--border-glass);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.unitModal h2 {
+  font-size: 18px;
+  font-weight: 900;
+  margin-bottom: 20px;
+  color: white;
+  text-align: center;
+}
+
+.unitForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.unitForm input, .unitForm select {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-glass);
+  padding: 12px;
+  border-radius: 12px;
+  color: white;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.unitForm input:focus, .unitForm select:focus {
+  border-color: var(--accent-blue);
+}
+
+.unitForm label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.typeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.typeBtn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  padding: 10px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+
+.typeBtn.active {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent-blue);
+  color: white;
+}
+
+.typeBtn span { font-size: 20px; }
+
+.modalActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.btnSubmit {
+  flex: 2;
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  padding: 14px;
+  border-radius: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btnCancel {
   flex: 1;
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-secondary);
@@ -737,12 +1022,60 @@
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-glass);
   color: white;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 4px;
-  border-radius: 4px;
-  outline: none;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 11px;
 }
+
+/* HISTORY & REPORTS */
+.resolvedCard {
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  background: rgba(16, 185, 129, 0.02) !important;
+  opacity: 0.9;
+}
+
+.missionReportSummary {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  border-left: 3px solid var(--accent-green);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reportTag {
+  font-size: 9px;
+  font-weight: 900;
+  color: var(--accent-green);
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.missionReportSummary p {
+  margin: 0;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.missionReportSummary strong {
+  color: white;
+}
+
+.conclusionBadge {
+  align-self: flex-start;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.conclusionBadge.success { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+.conclusionBadge.false_alarm { background: rgba(225, 29, 72, 0.2); color: #fb7185; }
+.conclusionBadge.transferred { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
 
 .chatInputArea {
   padding: 12px;
@@ -1196,5 +1529,253 @@
   color: var(--text-secondary);
   text-align: center;
   letter-spacing: 0.5px;
+}
+
+
+/* --- HQ ADVANCED FEATURES --- */
+.statsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.statCard {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.statVal {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--accent-blue);
+  line-height: 1;
+}
+
+.statLabel {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+.wideStat {
+  grid-column: span 2;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 20px;
+}
+
+.mgmtHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.mgmtTitle {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.btnMgmtAdd {
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.searchBar {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-glass);
+  padding: 12px 16px;
+  border-radius: 12px;
+  color: white;
+  margin-bottom: 20px;
+  width: 100%;
+  font-size: 13px;
+  outline: none;
+}
+
+.fleetView {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fleetCardAdmin {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fleetMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.fleetMetaInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fleetActions {
+  display: flex;
+  gap: 10px;
+}
+
+.btnFleetEdit {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btnFleetDelete {
+  padding: 10px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* CRISIS & TACTICAL EFFECTS */
+.crisisBanner {
+  background: var(--accent-red);
+  color: white;
+  padding: 12px;
+  text-align: center;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: 2px;
+  animation: bgPulse 1.5s infinite;
+  z-index: 1002;
+  position: relative;
+}
+
+@keyframes bgPulse {
+  0% { background-color: #991b1b; }
+  50% { background-color: #ef4444; }
+  100% { background-color: #991b1b; }
+}
+
+.crisisOverlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border: 10px solid var(--accent-red);
+  pointer-events: none;
+  z-index: 999;
+  animation: borderFlash 1s infinite alternate;
+}
+
+@keyframes borderFlash {
+  from { opacity: 0.3; }
+  to { opacity: 1; }
+}
+
+/* PHOTO VIEWER MODAL */
+.photoViewerOverlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.3s;
+}
+
+.photoViewerContent {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.photoViewerImage {
+  max-width: 100%;
+  max-height: 75vh;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  object-fit: contain;
+}
+
+.btnClosePhoto {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btnClosePhoto:hover {
+  background: var(--accent-red);
+}
+
+.photoViewerActions {
+  margin-top: 20px;
+}
+
+.btnDownloadPhoto {
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
+}
+
+.btnDownloadPhoto:hover {
+  background: #2563eb;
+  transform: translateY(-2px);
+}
+
+/* Fix for Leaflet tile grid lines */
+:global(.leaflet-tile) {
+  outline: 1px solid transparent;
+}
+:global(.leaflet-container) {
+  background: #0f172a !important;
 }
 

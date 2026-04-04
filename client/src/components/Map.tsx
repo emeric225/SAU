@@ -1,9 +1,40 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, GeoJSON, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+
+// POINT 3 & 11: Operational Zones (GeoJSON)
+const sectors: any = {
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Zone Portuaire", "color": "#3b82f6" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[ -4.01, 5.30 ], [ -3.99, 5.30 ], [ -3.99, 5.28 ], [ -4.01, 5.28 ], [ -4.01, 5.30 ]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Secteur Cocody North", "color": "#e11d48" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[ -3.98, 5.38 ], [ -3.95, 5.38 ], [ -3.95, 5.35 ], [ -3.98, 5.35 ], [ -3.98, 5.38 ]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Zone Industrielle Yopougon", "color": "#f97316" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[ -4.08, 5.35 ], [ -4.04, 5.35 ], [ -4.04, 5.32 ], [ -4.08, 5.32 ], [ -4.08, 5.35 ]]]
+      }
+    }
+  ]
+};
 
 // Fix for default Leaflet icons in Next.js
 if (typeof window !== 'undefined') {
@@ -19,23 +50,56 @@ if (typeof window !== 'undefined') {
 // --- Icons ---
 const VehicleIcon = (rotation: number) => L.divIcon({
   className: 'custom-vehicle-icon',
-  html: `<div style="transform: rotate(${rotation}deg); transition: transform 0.25s ease; width: 48px; height: 26px; background: linear-gradient(135deg, #e11d48, #be123c); border: 2.5px solid white; border-radius: 8px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 24px rgba(225,29,72,0.9), 0 0 8px rgba(0,0,0,0.5);">
-      <span style="font-size:16px; line-height:1;">🚒</span>
-      <div style="position: absolute; top: -7px; left: 6px; width: 8px; height: 8px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 12px #3b82f6; animation: siren-flash 0.4s infinite alternate;"></div>
-      <div style="position: absolute; top: -7px; right: 6px; width: 8px; height: 8px; background: #e11d48; border-radius: 50%; box-shadow: 0 0 12px #e11d48; animation: siren-flash 0.4s 0.2s infinite alternate;"></div>
+  html: `<div style="transform: rotate(${rotation}deg); transition: transform 0.25s ease; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
+      <svg width="40" height="40" viewBox="0 0 24 24" style="filter: drop-shadow(0 0 8px rgba(225,29,72,0.9));">
+        <path d="M12 2L2 22L12 18L22 22L12 2Z" fill="url(#grad1)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#e11d48;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#be123c;stop-opacity:1" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div style="position: absolute; top: 12px; font-size: 14px;">🚒</div>
+      <div style="position: absolute; top: -2px; left: 10px; width: 6px; height: 6px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 10px #3b82f6; animation: siren-flash 0.4s infinite alternate;"></div>
+      <div style="position: absolute; top: -2px; right: 10px; width: 6px; height: 6px; background: #e11d48; border-radius: 50%; box-shadow: 0 0 10px #e11d48; animation: siren-flash 0.4s 0.2s infinite alternate;"></div>
     </div>`,
-  iconSize: [48, 26],
-  iconAnchor: [24, 13],
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
 });
 
-const StationIcon = (status: string) => L.divIcon({
-  className: 'custom-station-icon',
-  html: `<div style="background: ${status === 'active' ? '#3b82f6' : '#64748b'}; width: 32px; height: 32px; border-radius: 10px; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
-        </div>`,
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+const StationIcon = (status: string) => {
+  let color = '#3b82f6'; // blue (available)
+  if (status === 'busy') color = '#f59e0b'; // orange (busy)
+  if (status === 'offline' || status === 'unactive') color = '#64748b'; // slate (offline)
+  
+  return L.divIcon({
+    className: 'custom-station-icon',
+    html: `<div style="background: ${color}; width: 32px; height: 32px; border-radius: 10px; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px ${color}66;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+          </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+};
+
+const UnitMapIcon = (type: string, status: string) => {
+  let color = '#10b981'; // green (available)
+  if (status === 'en_route') color = '#f59e0b'; // orange
+  if (status === 'on_site') color = '#ef4444'; // red
+  const emoji = type === 'ambulance' ? '🚑' : 
+                type === 'moto' ? '🏍️' : 
+                type === 'command' ? '🚙' :
+                type === 'tanker' ? '🚚' : '🚒';
+  return L.divIcon({
+    className: 'custom-unit-icon',
+    html: `<div style="background: ${color}; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px ${color}66; font-size: 20px;">
+            ${emoji}
+          </div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+  });
+};
 
 const AlertIcon = (status: string, type: string) => L.divIcon({
   className: 'custom-alert-icon',
@@ -61,16 +125,74 @@ function calcBearing(p1: [number, number], p2: [number, number]): number {
 }
 
 // --- MapRecenter: locks map onto position in navigation mode ---
-function MapRecenter({ center, navigationActive }: { center: [number, number]; navigationActive: boolean }) {
-  const map = useMap();
+function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void }) {
+  const map = useMapEvents({
+    dragstart: () => {
+      // Si l'utilisateur touche la carte, on stoppe le suivi automatique
+      if (navigationActive) {
+        setAutoCenter(false);
+      }
+    }
+  });
+
   useEffect(() => {
-    if (navigationActive) {
-      map.setView(center, 17, { animate: true, duration: 0.5 });
-    } else {
+    if (navigationActive && autoCenter) {
+      map.setView(center, 19, { animate: true, duration: 0.5 });
+    } else if (!navigationActive && autoCenter) {
       map.setView(center, 14, { animate: true, duration: 0.8 });
     }
-  }, [center, map, navigationActive]);
+  }, [center, map, navigationActive, autoCenter]);
   return null;
+}
+
+// --- MovingUnit: Smoothly animates unit between GPS points ---
+function MovingUnit({ id, type, status, name, lat, lng }: { id: string; type: string; status: string; name: string; lat: number; lng: number }) {
+  const [pos, setPos] = useState<[number, number]>([lat, lng]);
+  const lastPosRef = useRef<[number, number]>([lat, lng]);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const startPos = lastPosRef.current;
+    const targetPos: [number, number] = [lat, lng];
+    
+    if (startPos[0] === targetPos[0] && startPos[1] === targetPos[1]) return;
+
+    let startTime: number | null = null;
+    const DURATION = 1800; // Interpolate over 1.8s for smooth 2s updates
+
+    const animate = (time: number) => {
+      if (!startTime) startTime = time;
+      const elapsed = time - startTime;
+      const t = Math.min(elapsed / DURATION, 1);
+
+      const currentLat = lerp(startPos[0], targetPos[0], t);
+      const currentLng = lerp(startPos[1], targetPos[1], t);
+      
+      setPos([currentLat, currentLng]);
+
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        lastPosRef.current = targetPos;
+      }
+    };
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [lat, lng]);
+
+  return (
+    <Marker position={pos} icon={UnitMapIcon(type, status)}>
+      <Popup>
+        <strong>{name}</strong><br />
+        Statut: {status.toUpperCase()}
+      </Popup>
+    </Marker>
+  );
 }
 
 // --- Props ---
@@ -82,6 +204,8 @@ interface MapProps {
   navigationActive?: boolean;
   onRouteDataReady?: (data: { distanceKm: number; durationMin: number; segmentCount: number }) => void;
   onVehicleProgress?: (segmentIndex: number) => void;
+  units?: any[];
+  isLiveUnitMode?: boolean;
 }
 
 // Speed for simulation: avg ~40 km/h = ~11.1 m/s → each segment ~80ms
@@ -95,10 +219,13 @@ export default function Map({
   navigationActive = false,
   onRouteDataReady,
   onVehicleProgress,
+  units = [],
+  isLiveUnitMode = false
 }: MapProps) {
   const [route, setRoute] = useState<[number, number][]>([]);
   const [vehiclePos, setVehiclePos] = useState<[number, number] | null>(null);
   const [rotation, setRotation] = useState(0);
+  const [autoCenter, setAutoCenter] = useState(true);
 
   // rAF state
   const rafRef = useRef<number | null>(null);
@@ -110,53 +237,63 @@ export default function Map({
   useEffect(() => { routeRef.current = route; }, [route]);
 
   // Fetch route from OSRM
-  useEffect(() => {
-    const getRoute = async () => {
-      if (
-        selectedAlert &&
-        (selectedAlert.status === 'dispatched' || (selectedAlert.status === 'pending' && selectedAlert.station_id))
-      ) {
-        const station = stations.find((s: any) => s.id === selectedAlert.station_id);
-        const start = station
-          ? [Number(station.lng), Number(station.lat)]
-          : [selectedAlert.location.lng - 0.005, selectedAlert.location.lat + 0.005];
-
-        if (isNaN(start[0]) || isNaN(start[1])) return;
-
-        const url = `https://router.project-osrm.org/route/v1/driving/${start[0]},${start[1]};${selectedAlert.location.lng},${selectedAlert.location.lat}?overview=full&geometries=geojson`;
-        try {
-          const res = await fetch(url);
-          const data = await res.json();
-          if (data.routes && data.routes[0]) {
-            const coords: [number, number][] = data.routes[0].geometry.coordinates.map((c: any) => [c[1], c[0]]);
-            const distanceKm = data.routes[0].distance / 1000;
-            const durationMin = data.routes[0].duration / 60;
-            setRoute(coords);
-            segmentRef.current = 0;
-            setVehiclePos(coords[0]);
-            onRouteDataReady?.({ distanceKm, durationMin, segmentCount: coords.length });
-          }
-        } catch {
-          // Fallback straight line
-          const fallback: [number, number][] = [
-            [Number(start[1]), Number(start[0])],
-            [selectedAlert.location.lat, selectedAlert.location.lng],
-          ];
-          setRoute(fallback);
-          segmentRef.current = 0;
-          setVehiclePos(fallback[0]);
-          onRouteDataReady?.({ distanceKm: 2, durationMin: 5, segmentCount: 2 });
+  const getRoute = useCallback(async (startLnLat: [number, number]) => {
+    if (!selectedAlert || isNaN(startLnLat[0]) || isNaN(startLnLat[1])) return;
+    const url = `https://router.project-osrm.org/route/v1/driving/${startLnLat[0]},${startLnLat[1]};${selectedAlert.location.lng},${selectedAlert.location.lat}?overview=full&geometries=geojson`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes[0]) {
+        const coords: [number, number][] = data.routes[0].geometry.coordinates.map((c: any) => [c[1], c[0]]);
+        const distanceKm = data.routes[0].distance / 1000;
+        const durationMin = data.routes[0].duration / 60;
+        setRoute(coords);
+        if (!isLiveUnitMode) {
+           segmentRef.current = 0;
+           setVehiclePos(coords[0]);
         }
-      } else {
-        // Stop everything
-        stopAnimation();
-        setRoute([]);
-        setVehiclePos(null);
+        onRouteDataReady?.({ distanceKm, durationMin, segmentCount: coords.length });
       }
-    };
-    getRoute();
+    } catch (err) { }
+  }, [selectedAlert, isLiveUnitMode, onRouteDataReady]);
+
+  // Handle route fetching behaviors (Simulated vs Live)
+  useEffect(() => {
+    if (!selectedAlert) {
+      stopAnimation();
+      setRoute([]);
+      setVehiclePos(null);
+      return;
+    }
+
+    if (!isLiveUnitMode) {
+      // STATIC / SIMULATED ROUTING
+      const station = stations?.find((s: any) => s.id === selectedAlert.station_id);
+      const start: [number, number] = station
+        ? [Number(station.lng), Number(station.lat)]
+        : [center[1], center[0]];
+      getRoute(start);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAlert?.id, selectedAlert?.status]);
+  }, [selectedAlert?.id, selectedAlert?.status, isLiveUnitMode]);
+
+  // LIVE GPS POLLING AND RECALCULATION
+  const liveCoordsRef = useRef<[number, number]>([center[1], center[0]]);
+  useEffect(() => {
+    liveCoordsRef.current = [center[1], center[0]];
+  }, [center]);
+
+  useEffect(() => {
+    if (isLiveUnitMode && navigationActive && selectedAlert) {
+      // Initial fetch
+      getRoute(liveCoordsRef.current);
+      // Recalculate every 10s based on real position
+      const interval = setInterval(() => {
+        getRoute(liveCoordsRef.current);
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [isLiveUnitMode, navigationActive, selectedAlert, getRoute]);
 
   // --- rAF animation loop ---
   const stopAnimation = useCallback(() => {
@@ -207,41 +344,127 @@ export default function Map({
 
   // Start / stop animation based on navigationActive
   useEffect(() => {
-    if (navigationActive && route.length > 1) {
-      stopAnimation();
-      segmentRef.current = 0;
-      segmentStartTimeRef.current = null;
-      rafRef.current = requestAnimationFrame(animate);
-    } else {
-      stopAnimation();
+    if (!isLiveUnitMode) {
+      if (navigationActive && route.length > 1) {
+        stopAnimation();
+        segmentRef.current = 0;
+        segmentStartTimeRef.current = null;
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        stopAnimation();
+      }
     }
     return stopAnimation;
-  }, [navigationActive, route, animate, stopAnimation]);
+  }, [navigationActive, route, animate, stopAnimation, isLiveUnitMode]);
 
-  const mapCenter: [number, number] = vehiclePos && navigationActive
-    ? vehiclePos
-    : selectedAlert
-      ? [selectedAlert.location.lat, selectedAlert.location.lng]
-      : center;
+  // LIVE MODE SMOOTH INTERPOLATION
+  const lastCenterRef = useRef<[number, number]>(center);
+  const liveInterpRef = useRef<number | null>(null);
+  
+  useEffect(() => {
+    if (isLiveUnitMode && navigationActive) {
+      const p1 = lastCenterRef.current;
+      const p2 = center;
+      if (p1[0] === p2[0] && p1[1] === p2[1]) {
+        setVehiclePos(center);
+        return;
+      }
+      const bear = calcBearing(p1, p2);
+      setRotation(bear);
+
+      // Interpolate from p1 to p2 over 2 seconds
+      let startT: number | null = null;
+      const DURATION = 2000;
+      const interp = (t: number) => {
+        if (!startT) startT = t;
+        const elapsed = t - startT;
+        const progress = Math.min(elapsed / DURATION, 1);
+        const lat = lerp(p1[0], p2[0], progress);
+        const lng = lerp(p1[1], p2[1], progress);
+        setVehiclePos([lat, lng]);
+        if (progress < 1) {
+          liveInterpRef.current = requestAnimationFrame(interp);
+        } else {
+          lastCenterRef.current = center;
+        }
+      };
+      if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
+      liveInterpRef.current = requestAnimationFrame(interp);
+
+      return () => {
+        if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
+      };
+    }
+  }, [center, isLiveUnitMode, navigationActive]);
+
+  const mapCenter: [number, number] = isLiveUnitMode
+    ? (vehiclePos || center)
+    : (navigationActive && vehiclePos)
+      ? vehiclePos
+      : selectedAlert
+        ? [selectedAlert.location.lat, selectedAlert.location.lng]
+        : center;
 
   return (
-    <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }} zoomControl={false}>
-      <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; CARTO'
-      />
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#0a0a0a' }}>
+      <div style={{
+        width: '100%', height: '100%',
+        transform: (isLiveUnitMode && navigationActive) ? `rotate(${-rotation}deg) scale(1.5)` : 'rotate(0deg) scale(1)',
+        transition: 'transform 0.5s linear',
+        transformOrigin: 'center center'
+      }}>
+        <MapContainer center={center} zoom={13} maxZoom={22} style={{ height: '100%', width: '100%', zIndex: 0 }} zoomControl={false}>
+        <MapRecenter center={mapCenter} navigationActive={navigationActive} autoCenter={autoCenter} setAutoCenter={setAutoCenter} />
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; CARTO'
+          maxNativeZoom={19}
+          maxZoom={22}
+        />
 
-      {(selectedAlert || (vehiclePos && navigationActive)) && (
-        <MapRecenter center={mapCenter} navigationActive={navigationActive} />
-      )}
 
-      {stations.map((s: any) => (
-        <Marker key={s.id} position={[Number(s.lat), Number(s.lng)]} icon={StationIcon(s.status || 'active')}>
-          <Popup><strong>{s.name}</strong><br />{s.status === 'active' ? 'Opérationnel' : 'Hors service'}</Popup>
-        </Marker>
-      ))}
+        {/* POINT 11: Sector Zones */}
+        <GeoJSON 
+           data={sectors} 
+           style={(feature: any) => ({
+             fillColor: feature?.properties.color,
+             weight: 1,
+             opacity: 0.3,
+             color: feature?.properties.color,
+             fillOpacity: 0.1,
+             dashArray: '5, 5'
+           })}
+           onEachFeature={(feature, layer) => {
+             if (feature.properties && feature.properties.name) {
+               layer.bindTooltip(feature.properties.name, {
+                 permanent: true,
+                 direction: 'center',
+                 className: 'custom-zone-tooltip',
+               });
+             }
+           }}
+        />
 
-      {alerts.map((a) => (
+       {stations.filter((s: any) => s && !isNaN(Number(s.lat)) && !isNaN(Number(s.lng))).map((s: any) => (
+         <Marker key={s.id} position={[Number(s.lat), Number(s.lng)]} icon={StationIcon(s.status || 'available')}>
+           <Popup>
+              <strong>{s.name}</strong><br />
+              Statut: {s.status === 'busy' ? 'En intervention (Engagée)' : s.status === 'offline' ? 'Hors service' : 'Disponible'}
+           </Popup>
+         </Marker>
+       ))}
+        {units.filter((u: any) => u && !isNaN(Number(u.lat)) && !isNaN(Number(u.lng))).map((u: any) => (
+          <MovingUnit             key={u.id}
+            id={u.id}
+            type={u.type}
+            status={u.status}
+            name={u.name}
+            lat={Number(u.lat)}
+            lng={Number(u.lng)}
+          />
+        ))}
+
+      {alerts.filter(a => a.location?.lat && a.location?.lng).map((a) => (
         <Marker key={a.id} position={[a.location.lat, a.location.lng]} icon={AlertIcon(a.status, a.type)}>
           <Popup><strong>URGENCE {a.type.toUpperCase()}</strong><br />Statut: {a.status}</Popup>
         </Marker>
@@ -272,6 +495,36 @@ export default function Map({
         <Marker position={vehiclePos} icon={VehicleIcon(rotation)} />
       )}
 
+      </MapContainer>
+      </div>
+
+      {/* RECENTER BUTTON OVERLAY */}
+      {navigationActive && !autoCenter && (
+        <button 
+          onClick={() => setAutoCenter(true)}
+          style={{
+            position: 'absolute',
+            bottom: '40px',
+            right: '20px',
+            zIndex: 1000,
+            background: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '9999px',
+            padding: '12px 24px',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            boxShadow: '0 10px 25px rgba(59, 130, 246, 0.5)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <span>🎯</span> RECENTRER
+        </button>
+      )}
+
       <style>{`
         @keyframes alert-pulse {
           0% { transform: scale(1); opacity: 1; }
@@ -282,7 +535,24 @@ export default function Map({
           from { opacity: 0.3; }
           to { opacity: 1; box-shadow: 0 0 16px currentColor; }
         }
+        .custom-zone-tooltip {
+          background: rgba(0, 0, 0, 0.4);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 4px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+          color: white;
+          font-weight: 500;
+          font-size: 12px;
+          padding: 4px 8px;
+          backdrop-filter: blur(4px);
+        }
+        .leaflet-tooltip-top:before,
+        .leaflet-tooltip-bottom:before,
+        .leaflet-tooltip-left:before,
+        .leaflet-tooltip-right:before {
+          border: none !important;
+        }
       `}</style>
-    </MapContainer>
+    </div>
   );
 }
