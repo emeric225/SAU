@@ -489,3 +489,27 @@
   background: #2563eb;
   transform: translateY(-2px);
 }
+
+.audioBanner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: #e11d48;
+  color: white;
+  padding: 12px;
+  text-align: center;
+  font-weight: 900;
+  font-size: 14px;
+  z-index: 1000;
+  cursor: pointer;
+  animation: pulse-red 2s infinite;
+  box-shadow: 0 4px 12px rgba(225, 29, 72, 0.4);
+}
+
+@keyframes pulse-red {
+  0% { background: #e11d48; }
+  50% { background: #be123c; }
+  100% { background: #e11d48; }
+}
+

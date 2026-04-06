@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { io, Socket } from 'socket.io-client';
 import styles from './unit.module.css';
@@ -16,6 +16,32 @@ export default function UnitInterface() {
   const [showReport, setShowReport] = useState(false);
   const [gpsLocked, setGpsLocked] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const playSiren = () => {
+    if (!audioCtxRef.current) return;
+    try {
+      const audioCtx = audioCtxRef.current;
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      let count = 0;
+      const interval = setInterval(() => {
+        const t = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(count % 2 === 0 ? 800 : 1000, t);
+        gain.gain.setValueAtTime(0.3, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.5);
+        count++;
+        if (count >= 20) clearInterval(interval);
+      }, 500);
+    } catch (e) { console.error("Audio error", e); }
+  };
 
   const handleDownloadPhoto = async (url: string) => {
     try {
@@ -45,6 +71,7 @@ export default function UnitInterface() {
       const data = await res.json();
       if (data.success && data.isUnit) {
         setUnit(data.station);
+        localStorage.setItem('sau_unit', JSON.stringify(data.station));
         if (data.currentMission) {
           setMission(data.currentMission);
         }
@@ -67,9 +94,32 @@ export default function UnitInterface() {
 
     s.on('mission_received', (alertObj) => {
       setMission(alertObj);
-      // Play sound if bonus requested
+      playSiren();
     });
   };
+
+  // RECOVERY ON MOUNT
+  useEffect(() => {
+    const session = localStorage.getItem('sau_unit');
+    if (session) {
+      try {
+        const unitData = JSON.parse(session);
+        setUnitId(unitData.id);
+        // Force re-auth to get latest mission
+        fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stationId: unitData.id })
+        }).then(r => r.json()).then(data => {
+            if (data.success && data.isUnit) {
+              setUnit(data.station);
+              if (data.currentMission) setMission(data.currentMission);
+              initSocket(data.station.id);
+            }
+        });
+      } catch(e) {}
+    }
+  }, []);
 
   const updateStatus = (status: string) => {
     if (socket && unit) {
@@ -160,6 +210,16 @@ export default function UnitInterface() {
 
   return (
     <div className={styles.unitContainer}>
+      {/* Audio activation banner */}
+      {!audioEnabled && (
+        <div className={styles.audioBanner} onClick={() => {
+           audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+           setAudioEnabled(true);
+        }}>
+          🚨 CLIQUER ICI POUR ACTIVER LE SON DES MISSIONS
+        </div>
+      )}
+
       {/* Header */}
       <div className={styles.header}>
         <div>
