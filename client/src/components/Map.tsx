@@ -124,6 +124,25 @@ function calcBearing(p1: [number, number], p2: [number, number]): number {
   return Math.atan2(y, x) * (180 / Math.PI);
 }
 
+// Haversine distance in meters between two [lat, lng] points
+function distanceMeters(p1: [number, number], p2: [number, number]): number {
+  const R = 6371000;
+  const dLat = (p2[0] - p1[0]) * Math.PI / 180;
+  const dLon = (p2[1] - p1[1]) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(p1[0] * Math.PI / 180) * Math.cos(p2[0] * Math.PI / 180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Smooth angle interpolation (shortest arc)
+function lerpAngle(a: number, b: number, t: number): number {
+  let diff = b - a;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  return a + diff * t;
+}
+
 // --- MapRecenter: locks map onto position in navigation mode ---
 function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void }) {
   const map = useMapEvents({
@@ -225,7 +244,9 @@ export default function Map({
   const [route, setRoute] = useState<[number, number][]>([]);
   const [vehiclePos, setVehiclePos] = useState<[number, number] | null>(null);
   const [rotation, setRotation] = useState(0);
+  const [smoothRotation, setSmoothRotation] = useState(0);
   const [autoCenter, setAutoCenter] = useState(true);
+  const smoothRotRef = useRef(0);
 
   // rAF state
   const rafRef = useRef<number | null>(null);
@@ -368,14 +389,23 @@ export default function Map({
     if (isLiveUnitMode && navigationActive) {
       const p1 = lastCenterRef.current;
       const p2 = center;
-      if (p1[0] === p2[0] && p1[1] === p2[1]) {
-        setVehiclePos(center);
+
+      // Always update vehicle position
+      setVehiclePos(center);
+
+      // Only update bearing if movement is significant (> 10 meters)
+      // This prevents jitter from GPS noise on nearly-identical coordinates
+      const dist = distanceMeters(p1, p2);
+      if (dist > 10) {
+        const bear = calcBearing(p1, p2);
+        setRotation(bear);
+        lastCenterRef.current = center;
+      } else if (p1[0] === p2[0] && p1[1] === p2[1]) {
+        // Exact same position - skip entirely
         return;
       }
-      const bear = calcBearing(p1, p2);
-      setRotation(bear);
 
-      // Interpolate from p1 to p2 over 2 seconds
+      // Interpolate position smoothly from p1 to p2
       let startT: number | null = null;
       const DURATION = 2000;
       const interp = (t: number) => {
@@ -397,8 +427,30 @@ export default function Map({
       return () => {
         if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
       };
+    } else if (isLiveUnitMode && !navigationActive) {
+      // Not navigating — just show vehicle at current position, no rotation
+      setVehiclePos(center);
+      lastCenterRef.current = center;
     }
   }, [center, isLiveUnitMode, navigationActive]);
+
+  // Smooth rotation with exponential filter to avoid sudden arrow jumps
+  useEffect(() => {
+    const targetRot = rotation;
+    let rafId: number;
+    const step = () => {
+      const current = smoothRotRef.current;
+      const next = lerpAngle(current, targetRot, 0.12); // 12% per frame = smooth
+      const diff = Math.abs(next - current);
+      smoothRotRef.current = next;
+      setSmoothRotation(next);
+      if (diff > 0.05) {
+        rafId = requestAnimationFrame(step);
+      }
+    };
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  }, [rotation]);
 
   const mapCenter: [number, number] = isLiveUnitMode
     ? (vehiclePos || center)
@@ -415,7 +467,7 @@ export default function Map({
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#0a0a0a' }}>
       <div style={{
         width: '100%', height: '100%',
-        transform: (isLiveUnitMode && navigationActive) ? `rotate(${-rotation}deg) scale(1.5)` : 'rotate(0deg) scale(1)',
+        transform: (isLiveUnitMode && navigationActive) ? `rotate(${-smoothRotation}deg) scale(1.5)` : 'rotate(0deg) scale(1)',
         transition: 'transform 0.5s linear',
         transformOrigin: 'center center'
       }}>
@@ -506,7 +558,7 @@ export default function Map({
       )}
 
       {vehiclePos && (
-        <Marker position={vehiclePos} icon={VehicleIcon(rotation)} />
+        <Marker position={vehiclePos} icon={VehicleIcon(smoothRotation)} />
       )}
 
       </MapContainer>
