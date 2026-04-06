@@ -239,7 +239,10 @@ export default function Map({
   // Fetch route from OSRM
   const getRoute = useCallback(async (startLnLat: [number, number]) => {
     if (!selectedAlert || isNaN(startLnLat[0]) || isNaN(startLnLat[1])) return;
-    const url = `https://router.project-osrm.org/route/v1/driving/${startLnLat[0]},${startLnLat[1]};${selectedAlert.location.lng},${selectedAlert.location.lat}?overview=full&geometries=geojson`;
+    const alertLat = selectedAlert.location?.lat ?? selectedAlert.lat;
+    const alertLng = selectedAlert.location?.lng ?? selectedAlert.lng;
+    if (!alertLat || !alertLng) return;
+    const url = `https://router.project-osrm.org/route/v1/driving/${startLnLat[0]},${startLnLat[1]};${alertLng},${alertLat}?overview=full&geometries=geojson`;
     try {
       const res = await fetch(url);
       const data = await res.json();
@@ -402,7 +405,10 @@ export default function Map({
     : (navigationActive && vehiclePos)
       ? vehiclePos
       : selectedAlert
-        ? [selectedAlert.location.lat, selectedAlert.location.lng]
+        ? [
+            selectedAlert.location?.lat ?? selectedAlert.lat ?? center[0],
+            selectedAlert.location?.lng ?? selectedAlert.lng ?? center[1]
+          ]
         : center;
 
   return (
@@ -464,11 +470,19 @@ export default function Map({
           />
         ))}
 
-      {alerts.filter(a => a.location?.lat && a.location?.lng).map((a) => (
-        <Marker key={a.id} position={[a.location.lat, a.location.lng]} icon={AlertIcon(a.status, a.type)}>
-          <Popup><strong>URGENCE {a.type.toUpperCase()}</strong><br />Statut: {a.status}</Popup>
-        </Marker>
-      ))}
+      {alerts.filter(a => {
+        const lat = a.location?.lat ?? a.lat;
+        const lng = a.location?.lng ?? a.lng;
+        return lat && lng && !isNaN(Number(lat)) && !isNaN(Number(lng));
+      }).map((a) => {
+        const lat = Number(a.location?.lat ?? a.lat);
+        const lng = Number(a.location?.lng ?? a.lng);
+        return (
+          <Marker key={a.id} position={[lat, lng]} icon={AlertIcon(a.status, a.type)}>
+            <Popup><strong>URGENCE {a.type.toUpperCase()}</strong><br />Statut: {a.status}</Popup>
+          </Marker>
+        );
+      })}
 
       {route.length > 0 && (
         <>
