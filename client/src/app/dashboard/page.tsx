@@ -127,7 +127,12 @@ export default function Dashboard() {
       // Sort alerts: newest first on every fetch
       setAlerts([...aData].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       setKpis(kData);
-      setMessages(mData);
+      // Deduplicate messages on fetch
+      setMessages(prev => {
+        const existing = new Set(prev.map(m => `${m.timestamp}_${m.text}`));
+        const filtered = mData.filter((m: any) => !existing.has(`${m.timestamp}_${m.text}`));
+        return [...prev, ...filtered].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      });
       setUnits(uData);
       setLoading(false);
     } catch (err) {
@@ -206,7 +211,11 @@ export default function Dashboard() {
     });
 
     socket.on('receive_message', (msg: any) => {
-      setMessages(prev => [...prev, msg]);
+      setMessages(prev => {
+        const isDup = prev.some(m => m.timestamp === msg.timestamp && m.text === msg.text);
+        if (isDup) return prev;
+        return [...prev, msg].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      });
       
       // If chat is collapsed and message is for us, increment unread
       setIsChatExpanded(expanded => {
@@ -254,8 +263,17 @@ export default function Dashboard() {
       if (data.active) playSiren();
     });
 
-    socket.on('stations_list_updated', (newList: any) => {
-      setStations(newList);
+    socket.on('stations_list_updated', (data: any) => {
+      if (Array.isArray(data)) {
+        setStations(data);
+      } else {
+        // Fallback if server sends single object
+        setStations(prev => {
+          const exists = prev.some(s => s.id === data.id);
+          if (exists) return prev.map(s => s.id === data.id ? { ...s, ...data } : s);
+          return [...prev, data];
+        });
+      }
     });
 
     socket.on('unit_moved', (updatedUnit: any) => {

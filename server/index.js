@@ -100,7 +100,8 @@ app.post('/api/stations', async (req, res) => {
     .single();
   
   if (error) return res.status(500).json(error);
-  io.emit('stations_list_updated', data);
+  const { data: stations } = await supabase.from('stations').select('*');
+  io.emit('stations_list_updated', stations);
   res.status(201).json(data);
 });
 
@@ -115,7 +116,9 @@ app.put('/api/stations/:id', async (req, res) => {
     .single();
 
   if (error) return res.status(404).json({ error: 'Station not found' });
-  io.emit('stations_list_updated', data);
+  const { data: stations } = await supabase.from('stations').select('*');
+  io.emit('stations_list_updated', stations);
+  io.emit('station_updated', data);
   res.json(data);
 });
 
@@ -123,7 +126,8 @@ app.delete('/api/stations/:id', async (req, res) => {
   const { id } = req.params;
   const { error } = await supabase.from('stations').delete().eq('id', id);
   if (error) return res.status(500).json(error);
-  io.emit('stations_list_updated', { deletedId: id });
+  const { data: stations } = await supabase.from('stations').select('*');
+  io.emit('stations_list_updated', stations);
   res.json({ success: true });
 });
 
@@ -209,11 +213,7 @@ app.patch('/api/alerts/:id', async (req, res) => {
       .single();
 
     if (error) throw error;
-
-    const targetRoom = alert.station_id ? `station_${alert.station_id}` : null;
-    let broadcaster = io.to('admin');
-    if (targetRoom) broadcaster = broadcaster.to(targetRoom);
-    broadcaster.emit('alert_updated', alert);
+    io.emit('alert_updated', alert);
     res.json(alert);
   } catch (err) { res.status(500).json({ error: 'Fail' }); }
 });
@@ -345,6 +345,7 @@ io.on('connection', (socket) => {
     const { data: unit } = await supabase.from('units').update(updateData).eq('id', data.unitId).select().single();
     
     if (unit) {
+      io.emit('unit_updated', unit);
       if (data.status === 'en_route') {
         const { data: ale } = await supabase.from('alerts').update({ status: 'dispatched' }).eq('id', data.alertId).select().single();
         if (ale) io.emit('alert_updated', ale);
