@@ -18,6 +18,9 @@ export default function UnitInterface() {
   const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
   const playSiren = () => {
     if (!audioCtxRef.current) return;
@@ -121,6 +124,57 @@ export default function UnitInterface() {
     }
   }, []);
 
+  // PWA & OFFLINE LOGIC
+  useEffect(() => {
+    const handleBeforeInstall = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncOfflineReports();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    setIsOnline(navigator.onLine);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const syncOfflineReports = async () => {
+    const queue = JSON.parse(localStorage.getItem('sau_offline_reports') || '[]');
+    if (queue.length === 0) return;
+
+    setSyncing(true);
+    for (const item of queue) {
+      try {
+        await fetch(`/api/alerts/${item.missionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: item.status, report: item.reportData })
+        });
+      } catch (e) { break; }
+    }
+    localStorage.removeItem('sau_offline_reports');
+    setSyncing(false);
+    alert("✅ Rapports hors-ligne synchronisés avec succès.");
+  };
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setDeferredPrompt(null);
+  };
+
   const updateStatus = (status: string) => {
     if (socket && unit) {
       socket.emit('unit_status_update', { unitId: unit.id, status, alertId: mission?.id });
@@ -139,6 +193,18 @@ export default function UnitInterface() {
     };
 
     try {
+      if (!navigator.onLine) {
+        const queue = JSON.parse(localStorage.getItem('sau_offline_reports') || '[]');
+        queue.push({ missionId: mission.id, reportData, status: 'resolved' });
+        localStorage.setItem('sau_offline_reports', JSON.stringify(queue));
+        alert("⚠️ Connexion perdue. Rapport sauvegardé localement. Il sera envoyé automatiquement au retour du réseau.");
+        updateStatus('available');
+        setMission(null);
+        setRouteData(null);
+        setShowReport(false);
+        return;
+      }
+
       const res = await fetch(`/api/alerts/${mission.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -222,11 +288,23 @@ export default function UnitInterface() {
 
       {/* Header */}
       <div className={styles.header}>
-        <div>
-          <h2 className={styles.unitName}>{unit.name?.toUpperCase()}</h2>
-          <span className={`${styles.badge} ${getBadgeClass(unit.status)}`}>
-            {unit.status.toUpperCase()}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div>
+            <h1 className={styles.unitName}>{unit ? unit.name : 'Unité SAU'}</h1>
+            <div className={`${styles.badge} ${unit?.status === 'available' ? styles.badgeAvailable : unit?.status === 'en_route' ? styles.badgeEnRoute : styles.badgeOnSite}`}>
+              {unit ? (unit.status === 'on_site' ? 'SUR PLACE' : unit.status === 'en_route' ? 'EN ROUTE' : 'DISPONIBLE') : 'HORS LIGNE'}
+            </div>
+            {!isOnline && <span className={styles.offlineTag}>HORS LIGNE</span>}
+          </div>
+          {deferredPrompt && (
+            <button className={styles.btnInstall} onClick={handleInstallClick}>
+              INSTALLER APP
+            </button>
+          )}
+        </div>
+        <div className={styles.connectionStatus}>
+          <div className={`${styles.statusDot} ${socket?.connected ? styles.online : styles.offline}`}></div>
+          {socket?.connected ? 'Liaison Tactique OK' : 'Réseau Instable'}
         </div>
       </div>
 

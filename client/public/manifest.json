@@ -1,0 +1,24 @@
+{
+  "name": "SAU Urgences Tactique",
+  "short_name": "SAU",
+  "description": "Système d'Alerte d'Urgence - Interface Tactique Terrain",
+  "start_url": "/unit",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#ef4444",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
