@@ -278,21 +278,34 @@ app.patch('/api/alerts/:id', async (req, res) => {
     if (status) updateData.status = status;
     if (station_id) updateData.station_id = station_id;
     if (notes !== undefined) updateData.notes = notes;
-    if (report) updateData.report = report;
-    if (status === 'resolved') updateData.resolved_at = new Date();
+    if (report) updateData.report = JSON.stringify(report); // Stringify to avoid PostgREST coercion error
+    if (status === 'resolved') updateData.resolved_at = new Date().toISOString();
 
-    const { data: alert, error } = await supabase
+    let { data: alerts, error } = await supabase
       .from('alerts')
       .update(updateData)
       .eq('id', id)
-      .select()
-      .single();
+      .select();
 
-    if (error) throw error;
+    if (error) {
+       // If it STILL fails because the 'report' column doesn't support strings properly, fallback to notes
+       console.error('[SAU] Report update error, trying fallback:', error);
+       updateData.notes = (updateData.notes || '') + '\n[BILAN]: ' + JSON.stringify(report);
+       delete updateData.report;
+       const fallback = await supabase.from('alerts').update(updateData).eq('id', id).select();
+       if (fallback.error) throw fallback.error;
+       alerts = fallback.data;
+    }
+    
+    const alert = alerts && alerts.length > 0 ? alerts[0] : null;
+    if (!alert) {
+      return res.status(404).json({ error: "Alerte introuvable ou déjà clôturée (ID invalide)." });
+    }
+
     io.emit('alert_updated', alert);
     res.json(alert);
   } catch (err) { 
-    console.error('[SAU] Report update error:', err);
+    console.error('[SAU] Report update final error:', err);
     res.status(500).json({ error: err.message || JSON.stringify(err) }); 
   }
 });
