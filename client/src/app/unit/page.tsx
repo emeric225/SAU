@@ -25,6 +25,7 @@ export default function UnitInterface() {
   const [showReport, setShowReport] = useState(false);
   const [gpsPos, setGpsPos] = useState<[number, number] | null>(null);
   const [gpsLocked, setGpsLocked] = useState(false);
+  const gpsLockedRef = useRef(false);
   const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -257,11 +258,16 @@ export default function UnitInterface() {
   // ─── GPS Tracking ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!unit || !socket) return;
+    // Reset lock ref when unit changes (new login)
+    gpsLockedRef.current = false;
+    setGpsLocked(false);
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
-        if (!gpsLocked) {
+        // Use ref to avoid stale closure — fires toast only once per session
+        if (!gpsLockedRef.current) {
+          gpsLockedRef.current = true;
           setGpsLocked(true);
           showToast('📍 GPS verrouillé', 'success', 2000);
         }
@@ -271,7 +277,7 @@ export default function UnitInterface() {
       },
       (err) => {
         console.warn('[SAU] GPS error:', err.message);
-        if (!gpsPos) {
+        if (!gpsLockedRef.current) {
           // Fallback: use default position
           setGpsPos(DEFAULT_CENTER);
         }

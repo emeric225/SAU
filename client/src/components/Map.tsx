@@ -143,6 +143,47 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + diff * t;
 }
 
+// --- MapRotator: Rotates the tile pane (heading-up) without breaking Leaflet ---
+function MapRotator({ bearing, active }: { bearing: number; active: boolean }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const tilePane = map.getPanes().tilePane as HTMLElement;
+    const overlayPane = map.getPanes().overlayPane as HTMLElement;
+    const shadowPane = map.getPanes().shadowPane as HTMLElement;
+    const markerPane = map.getPanes().markerPane as HTMLElement;
+
+    if (!tilePane) return;
+
+    if (active) {
+      // Rotate only background tiles — markers stay upright
+      const rot = `rotate(${-bearing}deg) scale(1.55)`;
+      tilePane.style.transform = rot;
+      tilePane.style.transformOrigin = 'center center';
+      tilePane.style.transition = 'transform 0.4s linear';
+      // Keep overlay (polylines) rotating with tiles for correct heading
+      overlayPane.style.transform = rot;
+      overlayPane.style.transformOrigin = 'center center';
+      overlayPane.style.transition = 'transform 0.4s linear';
+      // Shadow pane too
+      shadowPane.style.transform = rot;
+      shadowPane.style.transformOrigin = 'center center';
+      // Counter-rotate markers so they stay upright
+      markerPane.style.transform = `rotate(${bearing}deg) scale(${1/1.55})`;
+      markerPane.style.transformOrigin = 'center center';
+      markerPane.style.transition = 'transform 0.4s linear';
+    } else {
+      // Reset all transforms
+      [tilePane, overlayPane, shadowPane, markerPane].forEach(p => {
+        p.style.transform = '';
+        p.style.transition = '';
+      });
+    }
+  }, [bearing, active, map]);
+
+  return null;
+}
+
 // --- MapRecenter: locks map onto position in navigation mode ---
 function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void }) {
   const map = useMapEvents({
@@ -246,6 +287,7 @@ export default function Map({
   const [rotation, setRotation] = useState(0);
   const [smoothRotation, setSmoothRotation] = useState(0);
   const [autoCenter, setAutoCenter] = useState(true);
+  const prevNavigationActive = useRef(false);
   const smoothRotRef = useRef(0);
 
   // rAF state
@@ -304,18 +346,38 @@ export default function Map({
   // LIVE GPS POLLING AND RECALCULATION
   const liveCoordsRef = useRef<[number, number]>([center[1], center[0]]);
   useEffect(() => {
+    // OSRM wants [lng, lat]
     liveCoordsRef.current = [center[1], center[0]];
   }, [center]);
 
+  // Find nearest route segment to current GPS position
+  const findNearestSegment = useCallback((pos: [number, number], r: [number, number][]): number => {
+    if (r.length < 2) return 0;
+    let minDist = Infinity;
+    let nearest = 0;
+    for (let i = 0; i < r.length - 1; i++) {
+      const d = distanceMeters(pos, r[i]);
+      if (d < minDist) { minDist = d; nearest = i; }
+    }
+    return nearest;
+  }, []);
+
   useEffect(() => {
     if (isLiveUnitMode && navigationActive && selectedAlert) {
+      // Reset autoCenter when navigation starts
+      if (!prevNavigationActive.current) {
+        setAutoCenter(true);
+        prevNavigationActive.current = true;
+      }
       // Initial fetch
       getRoute(liveCoordsRef.current);
-      // Recalculate every 10s based on real position
+      // Recalculate every 15s based on real position
       const interval = setInterval(() => {
         getRoute(liveCoordsRef.current);
-      }, 10000);
+      }, 15000);
       return () => clearInterval(interval);
+    } else {
+      prevNavigationActive.current = false;
     }
   }, [isLiveUnitMode, navigationActive, selectedAlert, getRoute]);
 
@@ -381,7 +443,7 @@ export default function Map({
     return stopAnimation;
   }, [navigationActive, route, animate, stopAnimation, isLiveUnitMode]);
 
-  // LIVE MODE SMOOTH INTERPOLATION
+  // LIVE MODE: smooth interpolation + bearing + route progress
   const lastCenterRef = useRef<[number, number]>(center);
   const liveInterpRef = useRef<number | null>(null);
   
@@ -390,35 +452,40 @@ export default function Map({
       const p1 = lastCenterRef.current;
       const p2 = center;
 
-      // Always update vehicle position
-      setVehiclePos(center);
+      // Skip strictly identical positions
+      if (p1[0] === p2[0] && p1[1] === p2[1]) return;
 
-      // Only update bearing if movement is significant (> 10 meters)
-      // This prevents jitter from GPS noise on nearly-identical coordinates
       const dist = distanceMeters(p1, p2);
-      if (dist > 10) {
+
+      // Update bearing only on significant movement (>5m) to avoid GPS jitter
+      if (dist > 5) {
         const bear = calcBearing(p1, p2);
         setRotation(bear);
-        lastCenterRef.current = center;
-      } else if (p1[0] === p2[0] && p1[1] === p2[1]) {
-        // Exact same position - skip entirely
-        return;
+        lastCenterRef.current = p2;
       }
 
-      // Interpolate position smoothly from p1 to p2
+      // Update route progress: find nearest route segment to current GPS position
+      const currentRoute = routeRef.current;
+      if (currentRoute && currentRoute.length > 1) {
+        const nearest = findNearestSegment(p2, currentRoute);
+        if (nearest > segmentRef.current) {
+          segmentRef.current = nearest;
+          onVehicleProgress?.(nearest);
+        }
+      }
+
+      // Smooth position interpolation
       let startT: number | null = null;
       const DURATION = 2000;
       const interp = (t: number) => {
         if (!startT) startT = t;
         const elapsed = t - startT;
         const progress = Math.min(elapsed / DURATION, 1);
-        const lat = lerp(p1[0], p2[0], progress);
-        const lng = lerp(p1[1], p2[1], progress);
-        setVehiclePos([lat, lng]);
+        setVehiclePos([lerp(p1[0], p2[0], progress), lerp(p1[1], p2[1], progress)]);
         if (progress < 1) {
           liveInterpRef.current = requestAnimationFrame(interp);
         } else {
-          lastCenterRef.current = center;
+          lastCenterRef.current = p2;
         }
       };
       if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
@@ -428,11 +495,13 @@ export default function Map({
         if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
       };
     } else if (isLiveUnitMode && !navigationActive) {
-      // Not navigating — just show vehicle at current position, no rotation
+      // Idle — just place vehicle at GPS, no rotation
       setVehiclePos(center);
+      setRotation(0);
       lastCenterRef.current = center;
+      segmentRef.current = 0;
     }
-  }, [center, isLiveUnitMode, navigationActive]);
+  }, [center, isLiveUnitMode, navigationActive, findNearestSegment, onVehicleProgress]);
 
   // Smooth rotation with exponential filter to avoid sudden arrow jumps
   useEffect(() => {
@@ -465,13 +534,8 @@ export default function Map({
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#0a0a0a' }}>
-      <div style={{
-        width: '100%', height: '100%',
-        transform: (isLiveUnitMode && navigationActive) ? `rotate(${-smoothRotation}deg) scale(1.5)` : 'rotate(0deg) scale(1)',
-        transition: 'transform 0.5s linear',
-        transformOrigin: 'center center'
-      }}>
         <MapContainer center={center} zoom={13} maxZoom={22} style={{ height: '100%', width: '100%', zIndex: 0 }} zoomControl={false}>
+        <MapRotator bearing={smoothRotation} active={isLiveUnitMode && navigationActive} />
         <MapRecenter center={mapCenter} navigationActive={navigationActive} autoCenter={autoCenter} setAutoCenter={setAutoCenter} />
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
@@ -562,7 +626,6 @@ export default function Map({
       )}
 
       </MapContainer>
-      </div>
 
       {/* RECENTER BUTTON OVERLAY */}
       {navigationActive && !autoCenter && (
