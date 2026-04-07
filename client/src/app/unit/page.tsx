@@ -241,19 +241,31 @@ export default function UnitInterface() {
     e.preventDefault();
     const form = e.target as HTMLFormElement;
     const reportData = {
-      actions: (form as any).actions.value,
-      conclusion: (form as any).conclusion.value,
-      victimes: (form as any).victimes.value,
+      actions: (form as any).actions?.value,
+      conclusion: (form as any).conclusion?.value,
+      victimes: (form as any).victimes?.value,
       timestamp: new Date(),
     };
+    
     try {
+      showToast('⏳ Transmission en cours...', 'info');
       const res = await fetch(`/api/alerts/${mission.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'resolved', report: reportData }),
       });
-      if (res.ok) { updateStatus('available'); setShowReport(false); }
-    } catch (err) { showToast('❌ ERREUR TRANSMISSION BILAN', 'error'); }
+      if (res.ok) { 
+        updateStatus('available'); 
+        setShowReport(false); 
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        showToast(`❌ ERREUR (Serveur): ${errData.error || 'Erreur inconnue'}`, 'error');
+        alert(`Erreur Serveur: ${JSON.stringify(errData)}`);
+      }
+    } catch (err: any) { 
+      showToast('❌ ERREUR TRANSMISSION BILAN (Réseau)', 'error'); 
+      alert(`Erreur Réseau/Exception: ${err?.message || JSON.stringify(err)}`);
+    }
   };
 
   const handleLogout = () => {

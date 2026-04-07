@@ -291,7 +291,10 @@ app.patch('/api/alerts/:id', async (req, res) => {
     if (error) throw error;
     io.emit('alert_updated', alert);
     res.json(alert);
-  } catch (err) { res.status(500).json({ error: 'Fail' }); }
+  } catch (err) { 
+    console.error('[SAU] Report update error:', err);
+    res.status(500).json({ error: err.message || JSON.stringify(err) }); 
+  }
 });
 
 // Station Status
