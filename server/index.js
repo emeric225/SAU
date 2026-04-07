@@ -99,6 +99,8 @@ if (supabaseUrl && supabaseKey) {
 app.get('/api/ping', (req, res) => res.status(200).send('pong'));
 
 // Simulation interval tracker to prevent conflicts with real GPS
+// Track units sending real GPS to disable simulations
+const gpsActiveUnits = new Set();
 const simulationIntervals = new Map();
 const SELF_URL = process.env.SELF_URL || `http://localhost:${process.env.PORT || 3008}`;
 
@@ -366,6 +368,7 @@ io.on('connection', (socket) => {
 
   socket.on('update_unit_position', async (data) => {
     // data: { unitId, lat, lng }
+    gpsActiveUnits.add(data.unitId);
     // If we get a real GPS update, stop any running simulation for this unit
     if (simulationIntervals.has(data.unitId)) {
       clearInterval(simulationIntervals.get(data.unitId));
@@ -392,6 +395,12 @@ io.on('connection', (socket) => {
       console.log(`[SAU] 📡 Mission ${alert.id} assignée à l'unité ${unit.id}`);
 
       // --- SIMULATION DE MOUVEMENT TACTIQUE (Mode Démonstration) ---
+      // Skip simulation if unit has sent real GPS recently
+      if (gpsActiveUnits.has(unit.id)) {
+        console.log(`[SAU] 🛰️ Simulation ignorée pour l'unité ${unit.id} (Mode GPS Réel)`);
+        return;
+      }
+
       const SIM_STEPS = 50;
       let currentStep = 0;
       const startLat = unit.lat;

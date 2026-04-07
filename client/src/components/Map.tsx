@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, GeoJSON, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import styles from '../app/unit/unit.module.css';
 
 // POINT 3 & 11: Operational Zones (GeoJSON)
 const sectors: any = {
@@ -266,6 +267,7 @@ interface MapProps {
   onVehicleProgress?: (segmentIndex: number) => void;
   units?: any[];
   isLiveUnitMode?: boolean;
+  selfUnitId?: string;
 }
 
 // Speed for simulation: avg ~40 km/h = ~11.1 m/s → each segment ~80ms
@@ -280,7 +282,8 @@ export default function Map({
   onRouteDataReady,
   onVehicleProgress,
   units = [],
-  isLiveUnitMode = false
+  isLiveUnitMode = false,
+  selfUnitId
 }: MapProps) {
   const [route, setRoute] = useState<[number, number][]>([]);
   const [vehiclePos, setVehiclePos] = useState<[number, number] | null>(null);
@@ -575,7 +578,10 @@ export default function Map({
            </Popup>
          </Marker>
        ))}
-        {units.filter((u: any) => u && !isNaN(Number(u.lat)) && !isNaN(Number(u.lng))).map((u: any) => (
+        {units
+          .filter((u: any) => u && !isNaN(Number(u.lat)) && !isNaN(Number(u.lng)))
+          .filter((u: any) => u.id !== selfUnitId) // Eviter le dédoublement de l'unité elle-même
+          .map((u: any) => (
           <MovingUnit             key={u.id}
             id={u.id}
             type={u.type}
@@ -631,24 +637,7 @@ export default function Map({
       {navigationActive && !autoCenter && (
         <button 
           onClick={() => setAutoCenter(true)}
-          style={{
-            position: 'absolute',
-            bottom: '40px',
-            right: '20px',
-            zIndex: 1000,
-            background: '#3b82f6',
-            color: 'white',
-            border: 'none',
-            borderRadius: '9999px',
-            padding: '12px 24px',
-            fontSize: '16px',
-            fontWeight: 'bold',
-            boxShadow: '0 10px 25px rgba(59, 130, 246, 0.5)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
+          className={styles.tacticalRecenterBtn}
         >
           <span>🎯</span> RECENTRER
         </button>

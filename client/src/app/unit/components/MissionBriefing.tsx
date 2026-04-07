@@ -66,7 +66,7 @@ export const MissionBriefing: React.FC<MissionBriefingProps> = ({
           ✅ ACCEPTER LA MISSION
         </button>
         <button onClick={onRefuse} className={styles.btnRefuse}>
-          REPOS
+          REFUSER
         </button>
       </div>
     </div>

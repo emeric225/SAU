@@ -145,7 +145,11 @@ export default function UnitInterface() {
     setSocket(s);
     s.emit('join_room', id);
 
-    s.on('connect', () => { setSocketConnected(true); showToast('📡 LIAISON OK', 'success', 2000); });
+    s.on('connect', () => { 
+      setSocketConnected(true); 
+      s.emit('join_room', id);
+      showToast('📡 LIAISON OK', 'success', 2000); 
+    });
     s.on('disconnect', () => { setSocketConnected(false); showToast('⚠️ LIAISON PERDUE', 'warning'); });
     s.on('mission_received', (alert: any) => {
       setMission(alert);
@@ -348,6 +352,7 @@ export default function UnitInterface() {
             stations={[]}
             alerts={mission ? [mission] : []}
             units={[unit]}
+            selfUnitId={unit.id}
             selectedAlert={mission}
             navigationActive={unit?.status === 'en_route'}
             onRouteDataReady={(d) => setRouteData(d)}

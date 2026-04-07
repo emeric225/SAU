@@ -192,13 +192,18 @@
 
 /* ── Navigation Bar (Google Maps Style) ─────────────────────────────────────── */
 .navInstructionBar {
+  position: absolute;
+  top: 60px; /* Below header roughly */
+  left: 16px;
+  right: 16px;
+  border-radius: 20px;
   background: #065f46; /* Deep Emerald */
-  padding: 20px 24px;
+  padding: 16px 20px;
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  z-index: 900;
+  z-index: 1000;
 }
 
 .navArrow { font-size: 44px; font-weight: 900; color: #fff; }
@@ -249,6 +254,10 @@
 
 /* ── Tactical ETA Bottom Bar ───────────────────────────────────────────────── */
 .etaBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   background: rgba(13, 17, 28, 0.98);
   backdrop-filter: var(--tk-glass-blur);
   padding: 24px 32px;
@@ -256,7 +265,7 @@
   align-items: center;
   border-top: 1px solid var(--tk-border);
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
-  z-index: 900;
+  z-index: 1000;
 }
 
 .etaBlock { flex: 1; text-align: center; }
@@ -397,6 +406,31 @@
 .missionPhotoThumb { width: 100%; height: 160px; border-radius: 24px; overflow: hidden; position: relative; cursor: pointer; margin-bottom: 24px; }
 .missionPhotoThumb img { width: 100%; height: 100%; object-fit: cover; }
 .photoZoomIcon { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.6); padding: 8px; border-radius: 12px; font-size: 16px; }
+
+.tacticalRecenterBtn {
+  position: absolute;
+  bottom: 120px;
+  right: 24px;
+  z-index: 1000;
+  background: var(--tk-accent-blue);
+  color: white;
+  border: none;
+  border-radius: 99px;
+  padding: 16px 28px;
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideInRight 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
 
 /* ── Server Wake UI ───────────────────────────────────────────────────────── */
 .serverWakeAlert { display: flex; align-items: center; gap: 20px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); padding: 20px; border-radius: 24px; text-align: left; margin: 24px 0; }
