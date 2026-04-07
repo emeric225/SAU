@@ -136,6 +136,16 @@ function distanceMeters(p1: [number, number], p2: [number, number]): number {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Projection sur un segment
+function getClosestPointOnSegment(p: [number, number], a: [number, number], b: [number, number]): [number, number] {
+  const atob = { x: b[0] - a[0], y: b[1] - a[1] };
+  const atop = { x: p[0] - a[0], y: p[1] - a[1] };
+  const len2 = atob.x * atob.x + atob.y * atob.y;
+  if (len2 === 0) return a;
+  const t = Math.max(0, Math.min(1, (atop.x * atob.x + atop.y * atob.y) / len2));
+  return [a[0] + atob.x * t, a[1] + atob.y * t];
+}
+
 // Smooth angle interpolation (shortest arc)
 function lerpAngle(a: number, b: number, t: number): number {
   let diff = b - a;
@@ -353,16 +363,27 @@ export default function Map({
     liveCoordsRef.current = [center[1], center[0]];
   }, [center]);
 
-  // Find nearest route segment to current GPS position
-  const findNearestSegment = useCallback((pos: [number, number], r: [number, number][]): number => {
-    if (r.length < 2) return 0;
-    let minDist = Infinity;
-    let nearest = 0;
+  // Find nearest route segment to current GPS position with geometric projection
+  const findNearestSegment = useCallback((pos: [number, number], r: [number, number][]) => {
+    if (r.length < 2) return { index: 0, proj: pos, distance: 0 };
+    let minProjDist = Infinity;
+    let projPoint = pos;
+    let nearestIndex = 0;
+    
+    // Scan all segments to find the absolute closest projection
     for (let i = 0; i < r.length - 1; i++) {
-      const d = distanceMeters(pos, r[i]);
-      if (d < minDist) { minDist = d; nearest = i; }
+        const p1 = r[i];
+        const p2 = r[i+1];
+        const proj = getClosestPointOnSegment(pos, p1, p2);
+        const dist = distanceMeters(pos, proj);
+        
+        if (dist < minProjDist) {
+            minProjDist = dist;
+            projPoint = proj;
+            nearestIndex = i;
+        }
     }
-    return nearest;
+    return { index: nearestIndex, proj: projPoint, distance: minProjDist };
   }, []);
 
   useEffect(() => {
@@ -433,64 +454,89 @@ export default function Map({
 
   // Start / stop animation based on navigationActive
   useEffect(() => {
-    if (!isLiveUnitMode) {
-      if (navigationActive && route.length > 1) {
+    if (!isLiveUnitMode && navigationActive && route.length > 1) {
         stopAnimation();
         segmentRef.current = 0;
         segmentStartTimeRef.current = null;
         rafRef.current = requestAnimationFrame(animate);
-      } else {
+    } else if (!isLiveUnitMode) {
         stopAnimation();
-      }
     }
     return stopAnimation;
   }, [navigationActive, route, animate, stopAnimation, isLiveUnitMode]);
 
-  // LIVE MODE: smooth interpolation + bearing + route progress
+  // LIVE MODE: smooth interpolation + bearing + route progress + Snap-to-Road
   const lastCenterRef = useRef<[number, number]>(center);
   const liveInterpRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number>(Date.now());
   
   useEffect(() => {
     if (isLiveUnitMode && navigationActive) {
-      const p1 = lastCenterRef.current;
-      const p2 = center;
+      const currentTime = Date.now();
+      const timeDiff = (currentTime - lastTimeRef.current) / 1000; // in seconds
+      lastTimeRef.current = currentTime;
 
-      // Skip strictly identical positions
-      if (p1[0] === p2[0] && p1[1] === p2[1]) return;
+      const p1 = lastCenterRef.current; // Previous snapped/interpolated position
+      const p2GPS = center; // Raw new GPS position
 
-      const dist = distanceMeters(p1, p2);
+      // Skip identical GPS pings
+      if (p1[0] === p2GPS[0] && p1[1] === p2GPS[1]) return;
 
-      // Update bearing only on significant movement (>5m) to avoid GPS jitter
-      if (dist > 5) {
-        const bear = calcBearing(p1, p2);
-        setRotation(bear);
-        lastCenterRef.current = p2;
-      }
-
-      // Update route progress: find nearest route segment to current GPS position
       const currentRoute = routeRef.current;
+      let targetPos = p2GPS;
+      
+      // 1. SNAP-TO-ROAD Logic
       if (currentRoute && currentRoute.length > 1) {
-        const nearest = findNearestSegment(p2, currentRoute);
-        if (nearest > segmentRef.current) {
-          segmentRef.current = nearest;
-          onVehicleProgress?.(nearest);
+        const { index, proj, distance } = findNearestSegment(p2GPS, currentRoute);
+        
+        // Tolerance: If GPS drifts > 20 meters, we recalculate (dynamic rerouting)
+        if (distance > 20) {
+           console.log(`[MAP] GPS deviated by ${distance.toFixed(1)}m. Rerouting...`);
+           getRoute(p2GPS); // Force reroute
+           targetPos = p2GPS;
+        } else {
+           // Snap to geometry
+           targetPos = proj;
+           // Update progress (only move forward to avoid moonwalking if GPS drifts backwards)
+           if (index >= segmentRef.current) {
+             segmentRef.current = index;
+             onVehicleProgress?.(index);
+           }
         }
       }
 
-      // Smooth position interpolation
+      // 2. ANTI-JITTER & Bearing
+      const physDist = distanceMeters(p1, targetPos);
+      const speed = timeDiff > 0 ? physDist / timeDiff : 0; // m/s
+      
+      // Update bearing only if speed > 1.38 m/s (~5 km/h) to prevent shaking at red lights
+      if (physDist > 2 && speed > 1.38) {
+        const bear = calcBearing(p1, targetPos);
+        setRotation(bear);
+      }
+
+      // 3. FLUID INTERPOLATION (60FPS)
       let startT: number | null = null;
-      const DURATION = 2000;
+      const DURATION = 1000; // Standardize to 1 sec between GPS updates
+      const ptStart = vehiclePos || p1; // Start from where the visual icon actually is
+
       const interp = (t: number) => {
         if (!startT) startT = t;
         const elapsed = t - startT;
         const progress = Math.min(elapsed / DURATION, 1);
-        setVehiclePos([lerp(p1[0], p2[0], progress), lerp(p1[1], p2[1], progress)]);
+        
+        const ilat = lerp(ptStart[0], targetPos[0], progress);
+        const ilng = lerp(ptStart[1], targetPos[1], progress);
+        
+        setVehiclePos([ilat, ilng]);
+        
         if (progress < 1) {
           liveInterpRef.current = requestAnimationFrame(interp);
         } else {
-          lastCenterRef.current = p2;
+          lastCenterRef.current = targetPos;
         }
       };
+      
       if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
       liveInterpRef.current = requestAnimationFrame(interp);
 
@@ -498,13 +544,13 @@ export default function Map({
         if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
       };
     } else if (isLiveUnitMode && !navigationActive) {
-      // Idle — just place vehicle at GPS, no rotation
+      // Idle — place vehicle at GPS, no forced rotation
       setVehiclePos(center);
       setRotation(0);
       lastCenterRef.current = center;
       segmentRef.current = 0;
     }
-  }, [center, isLiveUnitMode, navigationActive, findNearestSegment, onVehicleProgress]);
+  }, [center, isLiveUnitMode, navigationActive, findNearestSegment, onVehicleProgress, vehiclePos, getRoute]);
 
   // Smooth rotation with exponential filter to avoid sudden arrow jumps
   useEffect(() => {
