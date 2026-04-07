@@ -228,18 +228,19 @@ export default function UnitInterface() {
         })
           .then(r => r.json())
           .then(data => {
-            if (data.success && data.isUnit) {
-              setUnit(data.station);
-              if (data.currentMission) {
-                setMission(data.currentMission);
-                localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
-              } else {
-                setMission(null);
-                localStorage.removeItem('sau_unit_mission');
+              if (data.success && data.isUnit) {
+                setUnit(data.station);
+                if (data.currentMission) {
+                  setMission(data.currentMission);
+                  localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
+                } else if (unitData.status === 'available') {
+                  // Only clear mission if unit is truly available
+                  setMission(null);
+                  localStorage.removeItem('sau_unit_mission');
+                }
+                initSocket(data.station.id);
+                requestWakeLock();
               }
-              initSocket(data.station.id);
-              requestWakeLock();
-            }
           })
           .catch(() => {
             // Server unavailable at startup — keep local state, show offline
@@ -694,13 +695,19 @@ export default function UnitInterface() {
       )}
 
       {/* ── Nav Panel (on_site: show "validate mission" button) ── */}
-      {mission && unit?.status === 'on_site' && (
+      {unit?.status === 'on_site' && (
         <div className={styles.navPanel}>
-          <button onClick={() => setShowReport(true)} className={`${styles.btnAction} ${styles.btnResolved}`}>
-            ✅ VALIDER LA MISSION
-          </button>
+          {mission ? (
+            <button onClick={() => setShowReport(true)} className={`${styles.btnAction} ${styles.btnResolved}`}>
+              ✅ VALIDER LA MISSION
+            </button>
+          ) : (
+            <div className={styles.syncWarning}>
+              ⚠️ Mission non synchronisée
+            </div>
+          )}
           <div className={styles.forceStatusRow}>
-            <label className={styles.forceStatusLabel}>Forcer statut :</label>
+            <label className={styles.forceStatusLabel}>Statut :</label>
             <select
               value={unit.status}
               onChange={(e) => updateStatus(e.target.value)}
@@ -708,7 +715,7 @@ export default function UnitInterface() {
             >
               <option value="en_route">En route</option>
               <option value="on_site">Sur place</option>
-              <option value="available">Disponible (quitter)</option>
+              <option value="available">Libérer l'unité (Disponible)</option>
             </select>
           </div>
         </div>

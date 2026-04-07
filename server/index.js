@@ -316,7 +316,7 @@ app.post('/api/auth/login', async (req, res) => {
       const { data: activeAlert } = await supabase
         .from('alerts')
         .select('*')
-        .or(`assigned_unit_id.eq.${unit.id},and(station_id.eq.${unit.station_id},status.eq.dispatched)`)
+        .or(`assigned_unit_id.eq.${unit.id},and(station_id.eq.${unit.station_id},status.in.(dispatched,on_site))`)
         .neq('status', 'resolved')
         .order('created_at', { ascending: false })
         .limit(1)
