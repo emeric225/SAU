@@ -111,7 +111,7 @@ setInterval(async () => {
   } catch (err) {
     console.error('[SAU] 💔 Self-ping failed', err.message);
   }
-}, PING_INTERVAL);
+}, 14 * 60 * 1000);
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '50mb' }));
