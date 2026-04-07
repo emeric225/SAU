@@ -129,9 +129,10 @@ export default function Dashboard() {
       setKpis(kData);
       // Deduplicate messages on fetch
       setMessages(prev => {
-        const existing = new Set(prev.map(m => `${m.timestamp}_${m.text}`));
-        const filtered = mData.filter((m: any) => !existing.has(`${m.timestamp}_${m.text}`));
-        return [...prev, ...filtered].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        const existingIds = new Set(prev.map(m => m.id));
+        // Replace entire list with server data (source of truth)
+        const merged = [...mData];
+        return merged.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       });
       setUnits(uData);
       setLoading(false);
@@ -212,7 +213,7 @@ export default function Dashboard() {
 
     socket.on('receive_message', (msg: any) => {
       setMessages(prev => {
-        const isDup = prev.some(m => m.timestamp === msg.timestamp && m.text === msg.text);
+        const isDup = prev.some(m => m.id === msg.id);
         if (isDup) return prev;
         return [...prev, msg].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       });
@@ -380,8 +381,11 @@ export default function Dashboard() {
   };
 
   const deleteStation = async (id: string) => {
-     if (!confirm("Supprimer cette caserne ?")) return;
+     if (!confirm("Supprimer cette caserne ? Les unités rattachées seront aussi supprimées.")) return;
      try {
+       // Delete linked units first to avoid orphans
+       const linkedUnits = units.filter((u: any) => u.station_id === id);
+       await Promise.all(linkedUnits.map((u: any) => fetch(`/api/units/${u.id}`, { method: 'DELETE' })));
        await fetch(`/api/stations/${id}`, { method: 'DELETE' });
        fetchData();
      } catch (err) { console.error("Delete station error", err); }
@@ -1090,7 +1094,7 @@ return (
                         <span className={styles.msgTag}>DIRECT</span>
                       )}
                     </div>
-                    <p className={styles.msgText}>{m.text}</p>
+                    <p className={styles.msgText}>{m.content || m.text}</p>
                     <span className={styles.msgTime}>{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                 ))}

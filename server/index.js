@@ -98,7 +98,8 @@ if (supabaseUrl && supabaseKey) {
 // KEEP-ALIVE (RENDER)
 app.get('/api/ping', (req, res) => res.status(200).send('pong'));
 
-const PING_INTERVAL = 5 * 60 * 1000; // 5 minutes
+// Simulation interval tracker to prevent conflicts with real GPS
+const simulationIntervals = new Map();
 const SELF_URL = process.env.SELF_URL || `http://localhost:${process.env.PORT || 3008}`;
 
 setInterval(async () => {
@@ -365,6 +366,13 @@ io.on('connection', (socket) => {
 
   socket.on('update_unit_position', async (data) => {
     // data: { unitId, lat, lng }
+    // If we get a real GPS update, stop any running simulation for this unit
+    if (simulationIntervals.has(data.unitId)) {
+      clearInterval(simulationIntervals.get(data.unitId));
+      simulationIntervals.delete(data.unitId);
+      console.log(`[SAU] 🛑 Simulation arrêtée pour l'unité ${data.unitId} (GPS réel détecté)`);
+    }
+
     const { data: unit } = await supabase.from('units').update({ lat: data.lat, lng: data.lng }).eq('id', data.unitId).select().single();
     if (unit) {
       io.emit('unit_moved', unit); // inform map
@@ -391,10 +399,16 @@ io.on('connection', (socket) => {
       const destLat = alert.lat;
       const destLng = alert.lng;
 
+      // Clear existing simulation if any
+      if (simulationIntervals.has(unit.id)) {
+        clearInterval(simulationIntervals.get(unit.id));
+      }
+
       const simInterval = setInterval(async () => {
         const { data: currentUnit } = await supabase.from('units').select('status').eq('id', unit.id).single();
         if (!currentUnit || currentUnit.status !== 'en_route' || currentStep >= SIM_STEPS) {
           clearInterval(simInterval);
+          simulationIntervals.delete(unit.id);
           return;
         }
         currentStep++;
@@ -407,8 +421,11 @@ io.on('connection', (socket) => {
         if (currentStep === SIM_STEPS) {
           const { data: siteUnit } = await supabase.from('units').update({ status: 'on_site' }).eq('id', unit.id).select().single();
           io.emit('unit_updated', siteUnit);
+          simulationIntervals.delete(unit.id);
         }
-      }, 1000); 
+      }, 2000); // 2s is enough for demo without being too spammy
+
+      simulationIntervals.set(unit.id, simInterval);
     }
   });
 
@@ -426,9 +443,6 @@ io.on('connection', (socket) => {
         if (ale) io.emit('alert_updated', ale);
       } else if (data.status === 'on_site' && data.alertId) {
         const { data: ale } = await supabase.from('alerts').update({ status: 'on_site' }).eq('id', data.alertId).select().single();
-        if (ale) io.emit('alert_updated', ale);
-      } else if (data.status === 'available' && data.alertId) {
-        const { data: ale } = await supabase.from('alerts').update({ status: 'resolved', resolved_at: new Date() }).eq('id', data.alertId).select().single();
         if (ale) io.emit('alert_updated', ale);
       }
       io.emit('unit_updated', unit);
