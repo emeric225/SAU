@@ -105,6 +105,9 @@ export default function UnitInterface() {
           if (data.currentMission) {
             setMission(data.currentMission);
             localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
+          } else {
+            setMission(null);
+            localStorage.removeItem('sau_unit_mission');
           }
           initSocket(data.station.id);
           requestWakeLock();
@@ -185,7 +188,7 @@ export default function UnitInterface() {
               if (data.currentMission) {
                 setMission(data.currentMission);
                 localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
-              } else if (unitData.status === 'available') {
+              } else {
                 setMission(null);
                 localStorage.removeItem('sau_unit_mission');
               }

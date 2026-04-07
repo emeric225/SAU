@@ -322,8 +322,15 @@ app.post('/api/auth/login', async (req, res) => {
         .neq('status', 'resolved')
         .order('created_at', { ascending: false })
         .limit(1)
-        .maybeSingle();
-      return res.json({ success: true, station: unit, isUnit: true, currentMission: activeAlert || null });
+      let activeAlertData = activeAlert;
+      
+      // Auto-fix: if the unit thinks it is deployed but there is no active mission
+      if (!activeAlertData && unit.status !== 'available') {
+         const { data: updatedUnit } = await supabase.from('units').update({ status: 'available' }).eq('id', unit.id).select().single();
+         if (updatedUnit) unit.status = updatedUnit.status;
+      }
+
+      return res.json({ success: true, station: unit, isUnit: true, currentMission: activeAlertData || null });
     }
   }
   
