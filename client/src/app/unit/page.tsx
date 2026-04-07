@@ -21,6 +21,16 @@ export default function UnitInterface() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isOnline, setIsOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleLogout = () => {
+    localStorage.removeItem('sau_unit');
+    if (socket) socket.disconnect();
+    setUnit(null);
+    setMission(null);
+    setSocket(null);
+    setUnitId('');
+  };
 
   const playSiren = () => {
     if (!audioCtxRef.current) return;
@@ -65,6 +75,8 @@ export default function UnitInterface() {
   };
 
   const loginUnit = async () => {
+    if (!unitId || loading) return;
+    setLoading(true);
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -82,7 +94,12 @@ export default function UnitInterface() {
       } else {
         alert("ID Unité non valide (ex: u1, u2)");
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e);
+      alert("Erreur de connexion au serveur");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const initSocket = (id: string) => {
@@ -248,15 +265,20 @@ export default function UnitInterface() {
             
             <input
               autoFocus
-              className={styles.loginInput}
-              placeholder="Ex: u1, u2, u3"
+              type="text"
+              placeholder="Ex: u1"
               value={unitId}
-              onChange={e => setUnitId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && loginUnit()}
+              onChange={(e) => setUnitId(e.target.value)}
+              className={styles.loginInput}
+              disabled={loading}
+              onKeyDown={(e) => e.key === 'Enter' && loginUnit()}
             />
-            
-            <button onClick={loginUnit} className={styles.btnLogin}>
-              CONTRÔLE DU VÉHICULE
+            <button 
+              className={styles.btnLogin} 
+              onClick={loginUnit}
+              disabled={loading}
+            >
+              {loading ? 'AUTHENTIFICATION...' : 'REJOINDRE LE RÉSEAU'}
             </button>
 
             <div className={styles.loginFooter}>
@@ -302,11 +324,25 @@ export default function UnitInterface() {
             </button>
           )}
         </div>
-        <div className={styles.connectionStatus}>
-          <div className={`${styles.statusDot} ${socket?.connected ? styles.online : styles.offline}`}></div>
-          {socket?.connected ? 'Liaison Tactique OK' : 'Réseau Instable'}
+        <div className={styles.headerActions}>
+          <div className={styles.connectionStatus}>
+            <div className={`${styles.statusDot} ${socket?.connected ? styles.online : styles.offline}`}></div>
+            {socket?.connected ? 'Liaison OK' : 'Réseau Instable'}
+          </div>
+          <button onClick={handleLogout} className={styles.btnLogout} title="Déconnexion">
+            🚪
+          </button>
         </div>
       </div>
+
+      {/* Persistent Mission Info for ongoing missions */}
+      {mission && unit.status !== 'available' && (
+        <div className={styles.activeMissionHeader}>
+           <span className={styles.missionPulse}>●</span>
+           <strong>{mission.type?.toUpperCase()} EN COURS</strong>
+           {mission.phone && <a href={`tel:${mission.phone}`} className={styles.btnCall}>📞 APPELER</a>}
+        </div>
+      )}
 
       {/* Map Area */}
       <div className={styles.mapArea}>

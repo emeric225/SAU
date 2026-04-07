@@ -546,3 +546,70 @@
   pointer-events: none;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btnLogout {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.btnLogout:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  transform: scale(1.1);
+}
+
+.activeMissionHeader {
+  position: absolute;
+  top: 80px;
+  left: 20px;
+  right: 20px;
+  background: rgba(239, 68, 68, 0.95);
+  backdrop-filter: blur(8px);
+  padding: 12px 20px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 100;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.missionPulse {
+  color: white;
+  animation: pulse-op 1s infinite;
+}
+
+@keyframes pulse-op {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+.btnCall {
+  margin-left: auto;
+  background: white;
+  color: #ef4444;
+  padding: 6px 12px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 12px;
+}
+
