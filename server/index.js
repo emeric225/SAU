@@ -278,7 +278,7 @@ app.patch('/api/alerts/:id', async (req, res) => {
     if (status) updateData.status = status;
     if (station_id) updateData.station_id = station_id;
     if (notes !== undefined) updateData.notes = notes;
-    if (report) updateData.report = JSON.stringify(report); // Stringify to avoid PostgREST coercion error
+    if (report) updateData.report = report; // Pass the object directly for JSONB columns!
     if (status === 'resolved') updateData.resolved_at = new Date().toISOString();
 
     let { data: alerts, error } = await supabase
@@ -288,13 +288,8 @@ app.patch('/api/alerts/:id', async (req, res) => {
       .select();
 
     if (error) {
-       // If it STILL fails because the 'report' column doesn't support strings properly, fallback to notes
-       console.error('[SAU] Report update error, trying fallback:', error);
-       updateData.notes = (updateData.notes || '') + '\n[BILAN]: ' + JSON.stringify(report);
-       delete updateData.report;
-       const fallback = await supabase.from('alerts').update(updateData).eq('id', id).select();
-       if (fallback.error) throw fallback.error;
-       alerts = fallback.data;
+       console.error('[SAU] Report update error:', error);
+       return res.status(500).json({ error: error.message || "Erreur base de données" });
     }
     
     const alert = alerts && alerts.length > 0 ? alerts[0] : null;
