@@ -242,8 +242,10 @@ app.post('/api/auth/login', async (req, res) => {
       const { data: activeAlert } = await supabase
         .from('alerts')
         .select('*')
-        .eq('assigned_unit_id', unit.id)
+        .or(`assigned_unit_id.eq.${unit.id},and(station_id.eq.${unit.station_id},status.eq.dispatched)`)
         .neq('status', 'resolved')
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
       return res.json({ success: true, station: unit, isUnit: true, currentMission: activeAlert || null });
     }

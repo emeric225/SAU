@@ -89,6 +89,7 @@ export default function UnitInterface() {
         localStorage.setItem('sau_unit', JSON.stringify(data.station));
         if (data.currentMission) {
           setMission(data.currentMission);
+          localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
         }
         initSocket(data.station.id);
       } else {
@@ -114,6 +115,7 @@ export default function UnitInterface() {
 
     s.on('mission_received', (alertObj) => {
       setMission(alertObj);
+      localStorage.setItem('sau_unit_mission', JSON.stringify(alertObj));
       playSiren();
     });
   };
@@ -121,11 +123,16 @@ export default function UnitInterface() {
   // RECOVERY ON MOUNT
   useEffect(() => {
     const session = localStorage.getItem('sau_unit');
+    const savedMission = localStorage.getItem('sau_unit_mission');
+    
+    if (savedMission) {
+      try { setMission(JSON.parse(savedMission)); } catch(e) {}
+    }
+
     if (session) {
       try {
         const unitData = JSON.parse(session);
         setUnitId(unitData.id);
-        // Force re-auth to get latest mission
         fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -133,7 +140,14 @@ export default function UnitInterface() {
         }).then(r => r.json()).then(data => {
             if (data.success && data.isUnit) {
               setUnit(data.station);
-              if (data.currentMission) setMission(data.currentMission);
+              if (data.currentMission) {
+                setMission(data.currentMission);
+                localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
+              } else {
+                // If server says no mission, clear local mission too
+                setMission(null);
+                localStorage.removeItem('sau_unit_mission');
+              }
               initSocket(data.station.id);
             }
         });
@@ -336,10 +350,10 @@ export default function UnitInterface() {
       </div>
 
       {/* Persistent Mission Info for ongoing missions */}
-      {mission && unit.status !== 'available' && (
+      {mission && unit && unit.status !== 'available' && (
         <div className={styles.activeMissionHeader}>
            <span className={styles.missionPulse}>●</span>
-           <strong>{mission.type?.toUpperCase()} EN COURS</strong>
+           <strong>{mission.type?.toUpperCase() || 'URGENCE'} EN COURS</strong>
            {mission.phone && <a href={`tel:${mission.phone}`} className={styles.btnCall}>📞 APPELER</a>}
         </div>
       )}
