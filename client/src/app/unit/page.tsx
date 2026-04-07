@@ -118,6 +118,12 @@ export default function UnitInterface() {
       localStorage.setItem('sau_unit_mission', JSON.stringify(alertObj));
       playSiren();
     });
+
+    s.on('unit_updated', (updatedUnit) => {
+      if (updatedUnit.id === id) {
+        setUnit((prev: any) => ({...prev, status: updatedUnit.status}));
+      }
+    });
   };
 
   // RECOVERY ON MOUNT
@@ -210,6 +216,11 @@ export default function UnitInterface() {
     if (socket && unit) {
       socket.emit('unit_status_update', { unitId: unit.id, status, alertId: mission?.id });
       setUnit({ ...unit, status });
+      if (status === 'available') {
+        setMission(null);
+        localStorage.removeItem('sau_unit_mission');
+        setRouteData(null);
+      }
     }
   };
 
@@ -436,6 +447,18 @@ export default function UnitInterface() {
                ✅ VALIDER LA MISSION
              </button>
            )}
+
+           <div style={{ marginTop: '15px', width: '100%' }}>
+             <select 
+               value={unit.status} 
+               onChange={(e) => updateStatus(e.target.value)}
+               style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '14px', outline: 'none' }}
+             >
+               <option value="en_route">Forcer Statut : En route</option>
+               <option value="on_site">Forcer Statut : Sur place</option>
+               <option value="available">Forcer Statut : Disponible (Quitter la mission)</option>
+             </select>
+           </div>
         </div>
       )}
 

@@ -348,12 +348,13 @@ io.on('connection', (socket) => {
     
     if (unit) {
       io.emit('unit_updated', unit);
-      if (data.status === 'en_route') {
+      if (data.status === 'en_route' && data.alertId) {
         const { data: ale } = await supabase.from('alerts').update({ status: 'dispatched' }).eq('id', data.alertId).select().single();
         if (ale) io.emit('alert_updated', ale);
-      }
-      // When unit returns (available), free the alert if still open
-      if (data.status === 'available' && data.alertId) {
+      } else if (data.status === 'on_site' && data.alertId) {
+        const { data: ale } = await supabase.from('alerts').update({ status: 'on_site' }).eq('id', data.alertId).select().single();
+        if (ale) io.emit('alert_updated', ale);
+      } else if (data.status === 'available' && data.alertId) {
         const { data: ale } = await supabase.from('alerts').update({ status: 'resolved', resolved_at: new Date() }).eq('id', data.alertId).select().single();
         if (ale) io.emit('alert_updated', ale);
       }
