@@ -20,7 +20,80 @@ const io = socketIo(server, {
 // SUPABASE CONFIG
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+
+let supabase;
+if (supabaseUrl && supabaseKey) {
+  supabase = createClient(supabaseUrl, supabaseKey);
+} else {
+  console.warn('[SAU] ⚠️ SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing. switching to MOCK MODE.');
+  // Mock Supabase client for local development
+  const mockStations = JSON.parse(fs.readFileSync(path.join(__dirname, 'stations.json'), 'utf8'));
+  const mockUnits = mockStations.map(s => ({ ...s, id: 'u' + s.id.replace('sn', ''), station_id: s.id, status: 'available' }));
+  const mockAlerts = [];
+  const mockMessages = [];
+
+  const createMockQuery = (data, table) => {
+    return {
+      from: (t) => createMockQuery(data, t),
+      select: () => createMockQuery(data, table),
+      insert: (items) => {
+        const newItems = items.map(item => ({ ...item, created_at: new Date() }));
+        if (table === 'alerts') mockAlerts.push(...newItems);
+        if (table === 'messages') mockMessages.push(...newItems);
+        if (table === 'units') mockUnits.push(...newItems);
+        return createMockQuery(newItems, table);
+      },
+      update: (updates) => {
+        return {
+          eq: (key, value) => {
+            let targetData = [];
+            if (table === 'units') targetData = mockUnits;
+            if (table === 'alerts') targetData = mockAlerts;
+            if (table === 'stations') targetData = mockStations;
+            
+            const items = targetData.filter(item => item[key] === value);
+            items.forEach(item => Object.assign(item, updates));
+            return createMockQuery(items, table);
+          }
+        };
+      },
+      delete: () => ({ eq: (k, v) => {
+        if (table === 'units') {
+          const idx = mockUnits.findIndex(u => u[k] === v);
+          if (idx !== -1) mockUnits.splice(idx, 1);
+        }
+        return { error: null };
+      }}),
+      eq: (key, value) => {
+        let source = [];
+        if (table === 'stations') source = mockStations;
+        if (table === 'units') source = mockUnits;
+        if (table === 'alerts') source = mockAlerts;
+        const result = source.find(item => item[key] === value);
+        return createMockQuery(result, table);
+      },
+      not: () => createMockQuery(data, table),
+      or: () => createMockQuery(data, table),
+      neq: () => createMockQuery(data, table),
+      order: () => createMockQuery(data, table),
+      limit: () => createMockQuery(data, table),
+      single: () => ({ data: Array.isArray(data) ? data[0] : data, error: null }),
+      maybeSingle: () => ({ data: Array.isArray(data) ? data[0] : data, error: null }),
+      then: (fn) => Promise.resolve(fn({ data, error: null }))
+    };
+  };
+
+  supabase = {
+    from: (table) => {
+      let data = [];
+      if (table === 'stations') data = mockStations;
+      if (table === 'units') data = mockUnits;
+      if (table === 'alerts') data = mockAlerts;
+      if (table === 'messages') data = mockMessages;
+      return createMockQuery(data, table);
+    }
+  };
+}
 
 // KEEP-ALIVE (RENDER)
 app.get('/api/ping', (req, res) => res.status(200).send('pong'));

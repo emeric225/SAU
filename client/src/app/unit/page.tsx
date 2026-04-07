@@ -1,11 +1,20 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { io, Socket } from 'socket.io-client';
 import styles from './unit.module.css';
 
 const UnitMap = dynamic(() => import('../../components/Map'), { ssr: false });
+
+// Default center: Abidjan
+const DEFAULT_CENTER: [number, number] = [5.3365, -4.0268];
+
+interface Toast {
+  id: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+}
 
 export default function UnitInterface() {
   const [unitId, setUnitId] = useState('');
@@ -14,6 +23,7 @@ export default function UnitInterface() {
   const [mission, setMission] = useState<any>(null);
   const [routeData, setRouteData] = useState<any>(null);
   const [showReport, setShowReport] = useState(false);
+  const [gpsPos, setGpsPos] = useState<[number, number] | null>(null);
   const [gpsLocked, setGpsLocked] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
@@ -22,17 +32,43 @@ export default function UnitInterface() {
   const [isOnline, setIsOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [serverWaking, setServerWaking] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [socketConnected, setSocketConnected] = useState(false);
+  const wakeLockRef = useRef<any>(null);
+  const socketRef = useRef<Socket | null>(null);
 
-  const handleLogout = () => {
-    localStorage.removeItem('sau_unit');
-    if (socket) socket.disconnect();
-    setUnit(null);
-    setMission(null);
-    setSocket(null);
-    setUnitId('');
-  };
+  // ─── Toast system ────────────────────────────────────────────────────────────
+  const showToast = useCallback((message: string, type: Toast['type'] = 'info', duration = 4000) => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, duration);
+  }, []);
 
-  const playSiren = () => {
+  // ─── Wake Lock ───────────────────────────────────────────────────────────────
+  const requestWakeLock = useCallback(async () => {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        console.log('[SAU] 🔆 Wake Lock activé — écran maintenu allumé');
+      } catch (e) {
+        console.warn('[SAU] Wake Lock non disponible', e);
+      }
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release();
+      wakeLockRef.current = null;
+    }
+  }, []);
+
+  // ─── Audio ────────────────────────────────────────────────────────────────────
+  const playSiren = useCallback(() => {
     if (!audioCtxRef.current) return;
     try {
       const audioCtx = audioCtxRef.current;
@@ -53,9 +89,10 @@ export default function UnitInterface() {
         count++;
         if (count >= 20) clearInterval(interval);
       }, 500);
-    } catch (e) { console.error("Audio error", e); }
-  };
+    } catch (e) { console.error('Audio error', e); }
+  }, []);
 
+  // ─── Download photo ───────────────────────────────────────────────────────────
   const handleDownloadPhoto = async (url: string) => {
     try {
       const response = await fetch(url);
@@ -69,110 +106,198 @@ export default function UnitInterface() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(blobUrl);
     } catch (e) {
-      console.error('Failed to download image', e);
       window.open(url, '_blank');
     }
   };
 
+  // ─── Login with retry ─────────────────────────────────────────────────────────
   const loginUnit = async () => {
     if (!unitId || loading) return;
     setLoading(true);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: unitId })
-      });
-      const data = await res.json();
-      if (data.success && data.isUnit) {
-        setUnit(data.station);
-        localStorage.setItem('sau_unit', JSON.stringify(data.station));
-        if (data.currentMission) {
-          setMission(data.currentMission);
-          localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
+    setRetryCount(0);
+    setServerWaking(false);
+
+    const attemptLogin = async (attempt: number): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stationId: unitId }),
+          signal: AbortSignal.timeout(12000),
+        });
+        const data = await res.json();
+        if (data.success && data.isUnit) {
+          setUnit(data.station);
+          localStorage.setItem('sau_unit', JSON.stringify(data.station));
+          if (data.currentMission) {
+            setMission(data.currentMission);
+            localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
+          }
+          initSocket(data.station.id);
+          requestWakeLock();
+          return true;
+        } else {
+          showToast('❌ ID Unité non valide (ex: u1, u2)', 'error');
+          return false;
         }
-        initSocket(data.station.id);
-      } else {
-        alert("ID Unité non valide (ex: u1, u2)");
+      } catch (e: any) {
+        if (attempt < 3) {
+          setRetryCount(attempt);
+          if (attempt === 1) setServerWaking(true);
+          await new Promise(r => setTimeout(r, 3000 * attempt));
+          return attemptLogin(attempt + 1);
+        }
+        showToast('🔴 Impossible de joindre le serveur. Vérifiez votre connexion.', 'error', 6000);
+        return false;
       }
-    } catch (e) { 
-      console.error(e);
-      alert("Erreur de connexion au serveur");
-    } finally {
-      setLoading(false);
-    }
+    };
+
+    await attemptLogin(1);
+    setLoading(false);
+    setServerWaking(false);
+    setRetryCount(0);
   };
 
-  const initSocket = (id: string) => {
+  // ─── Socket ───────────────────────────────────────────────────────────────────
+  const initSocket = useCallback((id: string) => {
     const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:3008';
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
     const s = io(serverUrl, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
-      reconnection: true
+      reconnection: true,
+      reconnectionDelay: 2000,
+      reconnectionAttempts: Infinity,
     });
+    socketRef.current = s;
     setSocket(s);
     s.emit('join_room', id);
 
-    s.on('mission_received', (alertObj) => {
+    s.on('connect', () => {
+      setSocketConnected(true);
+      showToast('📡 Liaison réseau établie', 'success', 2500);
+    });
+
+    s.on('disconnect', () => {
+      setSocketConnected(false);
+      showToast('⚠️ Liaison réseau perdue — reconnexion...', 'warning');
+    });
+
+    s.on('reconnect', () => {
+      setSocketConnected(true);
+      s.emit('join_room', id);
+      showToast('📡 Liaison rétablie', 'success', 2500);
+    });
+
+    s.on('mission_received', (alertObj: any) => {
       setMission(alertObj);
       localStorage.setItem('sau_unit_mission', JSON.stringify(alertObj));
       playSiren();
+      showToast('🚨 NOUVELLE MISSION ASSIGNÉE !', 'error', 8000);
     });
 
-    s.on('unit_updated', (updatedUnit) => {
+    s.on('unit_updated', (updatedUnit: any) => {
       if (updatedUnit.id === id) {
-        setUnit((prev: any) => ({...prev, status: updatedUnit.status}));
+        setUnit((prev: any) => ({ ...prev, status: updatedUnit.status }));
       }
     });
-  };
+  }, [playSiren, showToast]);
 
-  // RECOVERY ON MOUNT
+  // ─── Recovery on mount ────────────────────────────────────────────────────────
   useEffect(() => {
     const session = localStorage.getItem('sau_unit');
     const savedMission = localStorage.getItem('sau_unit_mission');
-    
+
     if (savedMission) {
-      try { setMission(JSON.parse(savedMission)); } catch(e) {}
+      try { setMission(JSON.parse(savedMission)); } catch (e) {}
     }
 
     if (session) {
       try {
         const unitData = JSON.parse(session);
         setUnitId(unitData.id);
+        setLoading(true);
+
         fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stationId: unitData.id })
-        }).then(r => r.json()).then(data => {
+          body: JSON.stringify({ stationId: unitData.id }),
+        })
+          .then(r => r.json())
+          .then(data => {
             if (data.success && data.isUnit) {
               setUnit(data.station);
               if (data.currentMission) {
                 setMission(data.currentMission);
                 localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
               } else {
-                // If server says no mission, clear local mission too
                 setMission(null);
                 localStorage.removeItem('sau_unit_mission');
               }
               initSocket(data.station.id);
+              requestWakeLock();
             }
-        });
-      } catch(e) {}
+          })
+          .catch(() => {
+            // Server unavailable at startup — keep local state, show offline
+            showToast('⚠️ Reconnexion hors-ligne — données locales utilisées', 'warning');
+          })
+          .finally(() => setLoading(false));
+      } catch (e) { setLoading(false); }
     }
+
+    return () => {
+      releaseWakeLock();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // PWA & OFFLINE LOGIC
+  // ─── GPS Tracking ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const handleBeforeInstall = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
+    if (!unit || !socket) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!gpsLocked) {
+          setGpsLocked(true);
+          showToast('📍 GPS verrouillé', 'success', 2000);
+        }
+        setGpsPos([lat, lng]);
+        setUnit((prev: any) => prev ? { ...prev, lat, lng } : prev);
+        socket.emit('update_unit_position', { unitId: unit.id, lat, lng });
+      },
+      (err) => {
+        console.warn('[SAU] GPS error:', err.message);
+        if (!gpsPos) {
+          // Fallback: use default position
+          setGpsPos(DEFAULT_CENTER);
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit?.id, socket]);
 
-    const handleOnline = () => {
-      setIsOnline(true);
-      syncOfflineReports();
-    };
-    const handleOffline = () => setIsOnline(false);
+  // ─── Show map even without GPS ────────────────────────────────────────────────
+  useEffect(() => {
+    if (unit && !gpsPos) {
+      // Show map at default position after 3s if no GPS
+      const t = setTimeout(() => {
+        setGpsPos([unit.lat || DEFAULT_CENTER[0], unit.lng || DEFAULT_CENTER[1]]);
+      }, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [unit, gpsPos]);
+
+  // ─── PWA & offline ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleBeforeInstall = (e: any) => { e.preventDefault(); setDeferredPrompt(e); };
+    const handleOnline = () => { setIsOnline(true); syncOfflineReports(); };
+    const handleOffline = () => { setIsOnline(false); showToast('📵 Mode hors-ligne activé', 'warning'); };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     window.addEventListener('online', handleOnline);
@@ -184,34 +309,66 @@ export default function UnitInterface() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [showToast]);
 
+  // Re-acquire wake lock when page becomes visible again
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && unit) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [unit, requestWakeLock]);
+
+  // ─── Sync offline reports ─────────────────────────────────────────────────────
   const syncOfflineReports = async () => {
     const queue = JSON.parse(localStorage.getItem('sau_offline_reports') || '[]');
     if (queue.length === 0) return;
-
     setSyncing(true);
+    let success = 0;
     for (const item of queue) {
       try {
         await fetch(`/api/alerts/${item.missionId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: item.status, report: item.reportData })
+          body: JSON.stringify({ status: item.status, report: item.reportData }),
         });
+        success++;
       } catch (e) { break; }
     }
     localStorage.removeItem('sau_offline_reports');
     setSyncing(false);
-    alert("✅ Rapports hors-ligne synchronisés avec succès.");
+    if (success > 0) showToast(`✅ ${success} rapport(s) synchronisé(s)`, 'success');
   };
 
+  // ─── Logout ───────────────────────────────────────────────────────────────────
+  const handleLogout = () => {
+    localStorage.removeItem('sau_unit');
+    localStorage.removeItem('sau_unit_mission');
+    if (socketRef.current) socketRef.current.disconnect();
+    socketRef.current = null;
+    setUnit(null);
+    setMission(null);
+    setSocket(null);
+    setSocketConnected(false);
+    setUnitId('');
+    setGpsPos(null);
+    setGpsLocked(false);
+    setRouteData(null);
+    releaseWakeLock();
+  };
+
+  // ─── Install PWA ──────────────────────────────────────────────────────────────
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setDeferredPrompt(null);
+    if (outcome === 'accepted') { setDeferredPrompt(null); showToast('✅ App installée avec succès !', 'success'); }
   };
 
+  // ─── Update status ────────────────────────────────────────────────────────────
   const updateStatus = (status: string) => {
     if (socket && unit) {
       socket.emit('unit_status_update', { unitId: unit.id, status, alertId: mission?.id });
@@ -220,37 +377,43 @@ export default function UnitInterface() {
         setMission(null);
         localStorage.removeItem('sau_unit_mission');
         setRouteData(null);
+        showToast('✅ Mission terminée — Unité disponible', 'success');
+      } else if (status === 'en_route') {
+        showToast('🚒 En route vers la mission !', 'info');
+      } else if (status === 'on_site') {
+        showToast('📍 Arrivée sur place signalée', 'success');
       }
     }
   };
 
+  // ─── Report submit ────────────────────────────────────────────────────────────
   const handleReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const form = e.target as HTMLFormElement;
     const reportData = {
-      actions: form.actions.value,
-      conclusion: form.conclusion.value,
-      victimes: form.victimes.value,
-      timestamp: new Date()
+      actions: (form as any).actions.value,
+      conclusion: (form as any).conclusion.value,
+      victimes: (form as any).victimes.value,
+      timestamp: new Date(),
     };
 
-    try {
-      if (!navigator.onLine) {
-        const queue = JSON.parse(localStorage.getItem('sau_offline_reports') || '[]');
-        queue.push({ missionId: mission.id, reportData, status: 'resolved' });
-        localStorage.setItem('sau_offline_reports', JSON.stringify(queue));
-        alert("⚠️ Connexion perdue. Rapport sauvegardé localement. Il sera envoyé automatiquement au retour du réseau.");
-        updateStatus('available');
-        setMission(null);
-        setRouteData(null);
-        setShowReport(false);
-        return;
-      }
+    if (!navigator.onLine) {
+      const queue = JSON.parse(localStorage.getItem('sau_offline_reports') || '[]');
+      queue.push({ missionId: mission.id, reportData, status: 'resolved' });
+      localStorage.setItem('sau_offline_reports', JSON.stringify(queue));
+      showToast('⚠️ Rapport sauvegardé localement — sera envoyé au retour du réseau', 'warning', 6000);
+      updateStatus('available');
+      setMission(null);
+      setRouteData(null);
+      setShowReport(false);
+      return;
+    }
 
+    try {
       const res = await fetch(`/api/alerts/${mission.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'resolved', report: reportData })
+        body: JSON.stringify({ status: 'resolved', report: reportData }),
       });
       if (res.ok) {
         updateStatus('available');
@@ -259,55 +422,83 @@ export default function UnitInterface() {
         setShowReport(false);
       }
     } catch (err) {
-      console.error("Report submission error:", err);
+      console.error('Report submission error:', err);
+      showToast('❌ Erreur lors de la soumission du rapport', 'error');
     }
   };
 
-  useEffect(() => {
-    if (!unit || !socket) return;
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setGpsLocked(true);
-        setUnit((prev: any) => prev ? { ...prev, lat, lng } : prev);
-        socket.emit('update_unit_position', { unitId: unit.id, lat, lng });
-      },
-      (err) => console.warn(err),
-      { enableHighAccuracy: true }
-    );
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [unit?.id, socket]);
+  // ─── Helpers ──────────────────────────────────────────────────────────────────
+  const getStatusLabel = (status: string) => {
+    if (status === 'on_site') return 'SUR PLACE';
+    if (status === 'en_route') return 'EN ROUTE';
+    return 'DISPONIBLE';
+  };
 
+  const getStatusClass = (status: string) => {
+    if (status === 'on_site') return styles.badgeOnSite;
+    if (status === 'en_route') return styles.badgeEnRoute;
+    return styles.badgeAvailable;
+  };
+
+  const getETA = () => {
+    if (!routeData) return null;
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + Math.ceil(routeData.durationMin));
+    return now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const mapCenter: [number, number] = gpsPos || DEFAULT_CENTER;
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // LOGIN SCREEN
+  // ═══════════════════════════════════════════════════════════════════════════════
   if (!unit) {
     return (
       <div className={styles.unitContainer}>
         <div className={styles.loginContainer}>
           <div className={styles.loginCard}>
-            <div className={styles.logo}>SAU</div>
+            <div className={styles.loginLogoWrap}>
+              <div className={styles.logo}>SAU</div>
+              <div className={styles.logoPulse}></div>
+            </div>
             <h1 className={styles.loginTitle}>UNITÉ TACTIQUE</h1>
             <p className={styles.loginSub}>Identifiez votre véhicule pour rejoindre le réseau opérationnel</p>
-            
+
+            {serverWaking && (
+              <div className={styles.serverWakeAlert}>
+                <div className={styles.serverWakeSpinner}></div>
+                <div>
+                  <div className={styles.serverWakeTitle}>Réveil du serveur en cours...</div>
+                  <div className={styles.serverWakeSubtitle}>Tentative {retryCount}/3 — merci de patienter ~15s</div>
+                </div>
+              </div>
+            )}
+
             <input
               autoFocus
               type="text"
-              placeholder="Ex: u1"
+              placeholder="Ex: u1, u2, u3..."
               value={unitId}
               onChange={(e) => setUnitId(e.target.value)}
               className={styles.loginInput}
               disabled={loading}
               onKeyDown={(e) => e.key === 'Enter' && loginUnit()}
             />
-            <button 
-              className={styles.btnLogin} 
+            <button
+              className={styles.btnLogin}
               onClick={loginUnit}
               disabled={loading}
             >
-              {loading ? 'AUTHENTIFICATION...' : 'REJOINDRE LE RÉSEAU'}
+              {loading ? (
+                <span className={styles.loginLoadingRow}>
+                  <span className={styles.btnSpinner}></span>
+                  {serverWaking ? 'RÉVEIL SERVEUR...' : 'AUTHENTIFICATION...'}
+                </span>
+              ) : 'REJOINDRE LE RÉSEAU'}
             </button>
 
             <div className={styles.loginFooter}>
-              Système de Navigation d'Urgence v2.2
+              Système d'Alerte d'Urgence v2.3 — SAU Côte d'Ivoire
             </div>
           </div>
         </div>
@@ -315,160 +506,215 @@ export default function UnitInterface() {
     );
   }
 
-  const getBadgeClass = (status: string) => {
-    if (status === 'en_route') return styles.badgeEnRoute;
-    if (status === 'on_site') return styles.badgeOnSite;
-    return styles.badgeAvailable;
-  };
-
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // MAIN INTERFACE
+  // ═══════════════════════════════════════════════════════════════════════════════
   return (
     <div className={styles.unitContainer}>
-      {/* Audio activation banner */}
+
+      {/* ── Toast Notifications ── */}
+      <div className={styles.toastContainer}>
+        {toasts.map(t => (
+          <div key={t.id} className={`${styles.toast} ${styles[`toast_${t.type}`]}`}>
+            {t.message}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Audio Banner ── */}
       {!audioEnabled && (
         <div className={styles.audioBanner} onClick={() => {
-           audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-           setAudioEnabled(true);
+          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          setAudioEnabled(true);
+          showToast('🔊 Son activé', 'success', 2000);
         }}>
-          🚨 CLIQUER ICI POUR ACTIVER LE SON DES MISSIONS
+          🔊 APPUYEZ POUR ACTIVER LE SON DES ALERTES
         </div>
       )}
 
-      {/* Header */}
-      <div className={styles.header}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div>
-            <h1 className={styles.unitName}>{unit ? unit.name : 'Unité SAU'}</h1>
-            <div className={`${styles.badge} ${unit?.status === 'available' ? styles.badgeAvailable : unit?.status === 'en_route' ? styles.badgeEnRoute : styles.badgeOnSite}`}>
-              {unit ? (unit.status === 'on_site' ? 'SUR PLACE' : unit.status === 'en_route' ? 'EN ROUTE' : 'DISPONIBLE') : 'HORS LIGNE'}
+      {/* ── Header ── */}
+      <div className={styles.header} style={{ marginTop: audioEnabled ? 0 : '44px' }}>
+        <div className={styles.headerLeft}>
+          <div className={styles.unitName}>{unit?.name || 'Unité SAU'}</div>
+          <div className={styles.headerMeta}>
+            <div className={`${styles.badge} ${getStatusClass(unit?.status)}`}>
+              {getStatusLabel(unit?.status)}
             </div>
             {!isOnline && <span className={styles.offlineTag}>HORS LIGNE</span>}
+            {syncing && <span className={styles.syncingTag}>SYNCHRO...</span>}
           </div>
+        </div>
+        <div className={styles.headerRight}>
           {deferredPrompt && (
-            <button className={styles.btnInstall} onClick={handleInstallClick}>
-              INSTALLER APP
+            <button className={styles.btnInstall} onClick={handleInstallClick} title="Installer l'app">
+              ⬇ Installer
             </button>
           )}
-        </div>
-        <div className={styles.headerActions}>
-          <div className={styles.connectionStatus}>
-            <div className={`${styles.statusDot} ${socket?.connected ? styles.online : styles.offline}`}></div>
-            {socket?.connected ? 'Liaison OK' : 'Réseau Instable'}
+          <div className={`${styles.connectionStatus} ${socketConnected ? styles.connOnline : styles.connOffline}`}>
+            <div className={styles.statusDot}></div>
+            <span>{socketConnected ? 'Liaison OK' : 'Reconnexion...'}</span>
           </div>
-          <button onClick={handleLogout} className={styles.btnLogout} title="Déconnexion">
-            🚪
-          </button>
+          <button onClick={handleLogout} className={styles.btnLogout} title="Déconnexion">🚪</button>
         </div>
       </div>
 
-      {/* Persistent Mission Info for ongoing missions */}
-      {mission && unit && unit.status !== 'available' && (
-        <div className={styles.activeMissionHeader}>
-           <span className={styles.missionPulse}>●</span>
-           <strong>{mission.type?.toUpperCase() || 'URGENCE'} EN COURS</strong>
-           {mission.phone && <a href={`tel:${mission.phone}`} className={styles.btnCall}>📞 APPELER</a>}
-        </div>
-      )}
-
-      {/* Map Area */}
-      <div className={styles.mapArea}>
-         {gpsLocked ? (
-           <UnitMap 
-             stations={[]} 
-             alerts={mission ? [mission] : []}
-             units={unit.status === 'en_route' ? [] : [unit]}
-             selectedAlert={mission}
-             navigationActive={unit.status === 'en_route'}
-             onRouteDataReady={(d) => setRouteData(d)}
-             center={[unit.lat, unit.lng]}
-             isLiveUnitMode={true}
-           />
-         ) : (
-           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0a0a0a', color: '#3b82f6' }}>
-              <div style={{ fontSize: '32px', marginBottom: '16px', animation: 'spin 1s linear infinite' }}>🌍</div>
-              <strong>CALIBRAGE GPS EN COURS...</strong>
-              <span style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>Acquisition des coordonnées du véhicule</span>
-           </div>
-         )}
-      </div>
-
-      {/* Mission Popup */}
-      {mission && unit.status === 'available' && (
-        <div className={styles.popup}>
-          <h3 className={styles.popupTitle}>
-            🚨 MISSION ASSIGNÉE
-          </h3>
-          <p className={styles.popupText}>URGENCE: {mission.type.toUpperCase()}</p>
-          {mission.photo_url && (
-            <div className={styles.missionPhotoThumb} onClick={() => setViewingPhoto(mission.photo_url)}>
-              <img src={mission.photo_url} alt="Photo du signalement" />
-            </div>
-          )}
-          <div className={styles.popupDetailsGrid}>
-            <div><strong>APPELANT:</strong> {mission.name || 'ANONYME'}</div>
-            <div><strong>CONTACT:</strong> {mission.phone}</div>
-            <div className={styles.missionNotes}>
-              <strong>DÉTAILS:</strong><br/>
-              {mission.notes || 'Aucun détail fourni.'}
+      {/* ── Google Maps-style Navigation Bar (top) when en_route ── */}
+      {mission && unit?.status === 'en_route' && (
+        <div className={styles.navInstructionBar}>
+          <div className={styles.navArrow}>↑</div>
+          <div className={styles.navInstruction}>
+            <div className={styles.navInstructionMain}>
+              {routeData ? `Continuer vers ${mission.type?.toUpperCase() || 'URGENCE'}` : 'CALCUL DE L\'ITINÉRAIRE...'}
             </div>
             {routeData && (
-              <div style={{gridColumn: '1/-1', color: '#f97316', fontWeight: 800, marginTop: '8px'}}>
-                📍 {routeData.distanceKm.toFixed(1)} km — ETA: {Math.ceil(routeData.durationMin)} min
+              <div className={styles.navInstructionSub}>
+                {routeData.distanceKm.toFixed(1)} km restants
               </div>
             )}
           </div>
-          
-          <div className={styles.actions}>
+          {mission.phone && (
+            <a href={`tel:${mission.phone}`} className={styles.navCallBtn} title="Appeler le signalant">
+              📞
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* ── Mission banner (on_site) ── */}
+      {mission && unit?.status === 'on_site' && (
+        <div className={styles.onSiteBanner}>
+          <span className={styles.missionPulse}>●</span>
+          <strong>{mission.type?.toUpperCase() || 'URGENCE'} — SUR PLACE</strong>
+          {mission.phone && <a href={`tel:${mission.phone}`} className={styles.btnCall}>📞 APPELER</a>}
+        </div>
+      )}
+
+      {/* ── Map Area ── */}
+      <div className={styles.mapArea}>
+        {gpsPos ? (
+          <UnitMap
+            stations={[]}
+            alerts={mission ? [mission] : []}
+            units={unit?.status === 'en_route' ? [] : [unit]}
+            selectedAlert={mission}
+            navigationActive={unit?.status === 'en_route'}
+            onRouteDataReady={(d) => setRouteData(d)}
+            center={mapCenter}
+            isLiveUnitMode={true}
+          />
+        ) : (
+          <div className={styles.gpsLoader}>
+            <div className={styles.gpsSpinner}></div>
+            <strong>CALIBRAGE GPS...</strong>
+            <span>Acquisition des coordonnées du véhicule</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Google Maps-style Bottom ETA Bar (en_route) ── */}
+      {mission && unit?.status === 'en_route' && (
+        <div className={styles.etaBar}>
+          <div className={styles.etaBlock}>
+            <div className={styles.etaValue}>{routeData ? Math.ceil(routeData.durationMin) : '--'}</div>
+            <div className={styles.etaLabel}>min</div>
+          </div>
+          <div className={styles.etaDivider}></div>
+          <div className={styles.etaBlock}>
+            <div className={styles.etaValue}>{routeData ? routeData.distanceKm.toFixed(1) : '--'}</div>
+            <div className={styles.etaLabel}>km</div>
+          </div>
+          <div className={styles.etaDivider}></div>
+          <div className={styles.etaBlock}>
+            <div className={styles.etaValue}>{getETA() || '--:--'}</div>
+            <div className={styles.etaLabel}>arrivée</div>
+          </div>
+          <button
+            onClick={() => updateStatus('on_site')}
+            className={styles.etaArriveBtn}
+          >
+            📍 Arrivé
+          </button>
+        </div>
+      )}
+
+      {/* ── Mission Popup (new mission, status=available) ── */}
+      {mission && unit?.status === 'available' && (
+        <div className={styles.popup}>
+          <div className={styles.popupHeader}>
+            <div className={styles.popupAlertDot}></div>
+            <h3 className={styles.popupTitle}>MISSION ASSIGNÉE</h3>
+          </div>
+          <p className={styles.popupType}>{mission.type?.toUpperCase() || 'URGENCE'}</p>
+
+          {mission.photo_url && (
+            <div className={styles.missionPhotoThumb} onClick={() => setViewingPhoto(mission.photo_url)}>
+              <img src={mission.photo_url} alt="Photo du signalement" />
+              <div className={styles.photoZoomIcon}>🔍</div>
+            </div>
+          )}
+
+          <div className={styles.popupDetailsGrid}>
+            <div className={styles.popupDetailRow}>
+              <span className={styles.popupDetailLabel}>👤 Appelant</span>
+              <span>{mission.name || 'ANONYME'}</span>
+            </div>
+            <div className={styles.popupDetailRow}>
+              <span className={styles.popupDetailLabel}>📞 Contact</span>
+              <a href={`tel:${mission.phone}`} className={styles.popupPhone}>{mission.phone || 'N/A'}</a>
+            </div>
+            {routeData && (
+              <div className={styles.popupDetailRow}>
+                <span className={styles.popupDetailLabel}>🗺️ Distance</span>
+                <span className={styles.popupEta}>{routeData.distanceKm.toFixed(1)} km — {Math.ceil(routeData.durationMin)} min</span>
+              </div>
+            )}
+            {mission.notes && (
+              <div className={styles.missionNotes}>
+                <strong>📋 Détails :</strong>
+                <p>{mission.notes}</p>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.popupActions}>
             <button onClick={() => updateStatus('en_route')} className={styles.btnAccept}>
               ✅ ACCEPTER
             </button>
-            <button onClick={() => setMission(null)} className={styles.btnRefuse}>
-              ❌ REFUSER
+            <button onClick={() => { setMission(null); localStorage.removeItem('sau_unit_mission'); }} className={styles.btnRefuse}>
+              ✕ Refuser
             </button>
           </div>
         </div>
       )}
 
-      {/* Active Navigation Panel */}
-      {mission && unit.status === 'en_route' && routeData && (
-        <div className={styles.floatingEta}>
-          <div className={styles.etaValue}>{Math.ceil(routeData.durationMin)}<span style={{fontSize: '16px'}}> min</span></div>
-          <div className={styles.etaDistance}>{routeData.distanceKm.toFixed(1)} km</div>
-        </div>
-      )}
-
-      {mission && unit.status !== 'available' && (
+      {/* ── Nav Panel (on_site: show "validate mission" button) ── */}
+      {mission && unit?.status === 'on_site' && (
         <div className={styles.navPanel}>
-           {unit.status === 'en_route' ? (
-             <button onClick={() => updateStatus('on_site')} className={`${styles.btnAction} ${styles.btnOnSite}`}>
-               📍 SIGNALER ARRIVÉE SUR PLACE
-             </button>
-           ) : (
-             <button onClick={() => setShowReport(true)} className={`${styles.btnAction} ${styles.btnResolved}`}>
-               ✅ VALIDER LA MISSION
-             </button>
-           )}
-
-           <div style={{ marginTop: '15px', width: '100%' }}>
-             <select 
-               value={unit.status} 
-               onChange={(e) => updateStatus(e.target.value)}
-               style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#1e293b', color: '#fff', border: '1px solid #475569', fontSize: '14px', outline: 'none' }}
-             >
-               <option value="en_route">Forcer Statut : En route</option>
-               <option value="on_site">Forcer Statut : Sur place</option>
-               <option value="available">Forcer Statut : Disponible (Quitter la mission)</option>
-             </select>
-           </div>
+          <button onClick={() => setShowReport(true)} className={`${styles.btnAction} ${styles.btnResolved}`}>
+            ✅ VALIDER LA MISSION
+          </button>
+          <div className={styles.forceStatusRow}>
+            <label className={styles.forceStatusLabel}>Forcer statut :</label>
+            <select
+              value={unit.status}
+              onChange={(e) => updateStatus(e.target.value)}
+              className={styles.forceStatusSelect}
+            >
+              <option value="en_route">En route</option>
+              <option value="on_site">Sur place</option>
+              <option value="available">Disponible (quitter)</option>
+            </select>
+          </div>
         </div>
       )}
 
-      {/* Report Modal */}
+      {/* ── Report Modal ── */}
       {showReport && mission && (
         <div className={styles.modalOverlay}>
           <div className={styles.reportCard}>
             <div className={styles.reportHeader}>
               <h2 className={styles.reportTitle}>RAPPORT D'INTERVENTION</h2>
-              <p className={styles.reportSub}>Mission : {mission.type.toUpperCase()} - {mission.name}</p>
+              <p className={styles.reportSub}>{mission.type?.toUpperCase()} — {mission.name}</p>
             </div>
             <form className={styles.reportForm} onSubmit={handleReportSubmit}>
               <div className={styles.formGroup}>
@@ -477,7 +723,7 @@ export default function UnitInterface() {
               </div>
               <div className={styles.formGroup}>
                 <label>Victimes / Bilan</label>
-                <input type="text" name="victimes" placeholder="Ex: 1 blessé léger" className={styles.reportInput} />
+                <input type="text" name="victimes" placeholder="Ex: 1 blessé léger, aucune victime..." className={styles.reportInput} />
               </div>
               <div className={styles.formGroup}>
                 <label>Conclusion</label>
@@ -496,16 +742,16 @@ export default function UnitInterface() {
         </div>
       )}
 
-      {/* PHOTO VIEWER MODAL */}
+      {/* ── Photo Viewer Modal ── */}
       {viewingPhoto && (
         <div className={styles.photoViewerOverlay} onClick={() => setViewingPhoto(null)}>
           <div className={styles.photoViewerContent} onClick={(e) => e.stopPropagation()}>
             <button className={styles.btnClosePhoto} onClick={() => setViewingPhoto(null)}>✕</button>
             <img src={viewingPhoto} alt="Zoom Alerte" className={styles.photoViewerImage} />
             <div className={styles.photoViewerActions}>
-               <button className={styles.btnDownloadPhoto} onClick={() => handleDownloadPhoto(viewingPhoto)}>
-                 📥 Télécharger la photo
-               </button>
+              <button className={styles.btnDownloadPhoto} onClick={() => handleDownloadPhoto(viewingPhoto)}>
+                📥 Télécharger
+              </button>
             </div>
           </div>
         </div>
