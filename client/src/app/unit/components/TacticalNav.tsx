@@ -1,0 +1,99 @@
+'use client';
+
+import React from 'react';
+import styles from '../unit.module.css';
+
+interface TacticalNavProps {
+  mission: any;
+  unitStatus: string;
+  routeData: any;
+  onUpdateStatus: (status: string) => void;
+  onShowReport: () => void;
+  getFormattedArrival: () => string;
+}
+
+export const TacticalNav: React.FC<TacticalNavProps> = ({
+  mission,
+  unitStatus,
+  routeData,
+  onUpdateStatus,
+  onShowReport,
+  getFormattedArrival
+}) => {
+  if (!mission) return null;
+
+  if (unitStatus === 'en_route') {
+    return (
+      <>
+        {/* Instruction Bar */}
+        <div className={styles.navInstructionBar}>
+          <div className={styles.navArrow}>↑</div>
+          <div className={styles.navInstruction}>
+            <div className={styles.navInstructionMain}>
+              {routeData ? `CONTINUER VERS ${mission.type?.toUpperCase() || 'URGENCE'}` : 'CALCUL...'}
+            </div>
+            {routeData && (
+              <div className={styles.navInstructionSub}>
+                {routeData.distanceKm.toFixed(1)} km restants
+              </div>
+            )}
+          </div>
+          {mission.phone && (
+            <a href={`tel:${mission.phone}`} className={styles.navCallBtn}>📞</a>
+          )}
+        </div>
+
+        {/* Bottom ETA bar */}
+        <div className={styles.etaBar}>
+          <div className={styles.etaBlock}>
+            <div className={styles.etaValue}>{routeData ? Math.ceil(routeData.durationMin) : '--'}</div>
+            <div className={styles.etaLabel}>MIN</div>
+          </div>
+          <div className={styles.etaDivider}></div>
+          <div className={styles.etaBlock}>
+            <div className={styles.etaValue}>{routeData ? routeData.distanceKm.toFixed(1) : '--'}</div>
+            <div className={styles.etaLabel}>KM</div>
+          </div>
+          <div className={styles.etaDivider}></div>
+          <div className={styles.etaBlock}>
+            <div className={styles.etaValue}>{getFormattedArrival()}</div>
+            <div className={styles.etaLabel}>ARRIVÉE</div>
+          </div>
+          <button onClick={() => onUpdateStatus('on_site')} className={styles.etaArriveBtn}>
+            📍 ARRIVÉ
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  if (unitStatus === 'on_site') {
+    return (
+      <div className={styles.navPanel}>
+        <div className={styles.onSiteHeader}>
+          <span className={styles.missionPulse}>●</span>
+          <strong>MISSION EN COURS — SUR PLACE</strong>
+        </div>
+        
+        <button onClick={onShowReport} className={`${styles.btnAction} ${styles.btnResolved}`}>
+          ✅ VALIDER LA MISSION (RAPPORT)
+        </button>
+
+        <div className={styles.forceStatusRow}>
+          <label className={styles.forceStatusLabel}>STATUT :</label>
+          <select 
+            value={unitStatus} 
+            onChange={(e) => onUpdateStatus(e.target.value)}
+            className={styles.forceStatusSelect}
+          >
+            <option value="en_route">En route</option>
+            <option value="on_site">Sur place</option>
+            <option value="available">Terminer (Disponible)</option>
+          </select>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
