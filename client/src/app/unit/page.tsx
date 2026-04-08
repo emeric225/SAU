@@ -121,10 +121,8 @@ export default function UnitInterface() {
           localStorage.setItem('sau_unit', JSON.stringify(data.station));
           if (data.currentMission) {
             setMission(data.currentMission);
-            localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
           } else {
             setMission(null);
-            localStorage.removeItem('sau_unit_mission');
           }
           initSocket(data.station.id);
           requestWakeLock();
@@ -173,7 +171,6 @@ export default function UnitInterface() {
     s.on('disconnect', () => { setSocketConnected(false); showToast('⚠️ LIAISON PERDUE', 'warning'); });
     s.on('mission_received', (alert: any) => {
       setMission(alert);
-      localStorage.setItem('sau_unit_mission', JSON.stringify(alert));
       playSiren('mission');
       showToast('🚨 MISSION REÇUE !', 'error', 10000);
     });
@@ -185,8 +182,6 @@ export default function UnitInterface() {
   // ─── Initial Recovery ────────────────────────────────────────────────────────
   useEffect(() => {
     const session = localStorage.getItem('sau_unit');
-    const savedMission = localStorage.getItem('sau_unit_mission');
-    if (savedMission) { try { setMission(JSON.parse(savedMission)); } catch (e) {} }
 
     if (session) {
       try {
@@ -204,10 +199,8 @@ export default function UnitInterface() {
               setUnit(data.station);
               if (data.currentMission) {
                 setMission(data.currentMission);
-                localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
               } else {
                 setMission(null);
-                localStorage.removeItem('sau_unit_mission');
               }
               initSocket(data.station.id);
               requestWakeLock();
@@ -458,7 +451,7 @@ export default function UnitInterface() {
           mission={mission}
           routeData={routeData}
           onAccept={() => updateStatus('en_route')}
-          onRefuse={() => { setMission(null); localStorage.removeItem('sau_unit_mission'); }}
+          onRefuse={() => { setMission(null); }}
           onViewPhoto={setViewingPhoto}
         />
       )}
