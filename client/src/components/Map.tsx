@@ -125,6 +125,7 @@ function lerpAngle(a: number, b: number, t: number): number {
 function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.LatLng[], onRouteUpdate: (data: any) => void, active: boolean }) {
   const map = useMap();
   const callbackRef = useRef(onRouteUpdate);
+  const routingControlRef = useRef<any>(null);
   useEffect(() => { callbackRef.current = onRouteUpdate; }, [onRouteUpdate]);
 
   useEffect(() => {
