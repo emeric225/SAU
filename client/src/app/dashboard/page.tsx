@@ -233,8 +233,8 @@ export default function Dashboard() {
 
       // If this station just got assigned this alert → trigger alarm + popup
       if (userData?.id !== 'admin' && updatedAlert.station_id === userData?.id) {
-        // Only trigger alarm if alert is newly assigned (not yet viewed)
-        if (!updatedAlert.viewed_at && updatedAlert.status !== 'resolved') {
+        // Seulement pour les alertes toutes neuves pas encore assigées (pending)
+        if (!updatedAlert.viewed_at && updatedAlert.status === 'pending') {
           setNewAlertPopup(updatedAlert);
           playSiren();
           socket.emit('alert_viewed', updatedAlert.id);

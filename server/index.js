@@ -421,57 +421,17 @@ io.on('connection', (socket) => {
 
   socket.on('assign_unit', async (data) => {
     // data: { unitId, alertId }
-    const { data: unit } = await supabase.from('units').update({ status: 'en_route' }).eq('id', data.unitId).select().single();
+    // Une assignation ne change pas l'état de l'unité, elle le fera elle-même en acceptant (DÉMARRER)
+    const { data: unit } = await supabase.from('units').select().eq('id', data.unitId).single();
     const { data: alert } = await supabase.from('alerts').update({ status: 'dispatched', assigned_unit_id: data.unitId }).eq('id', data.alertId).select().single();
     
     if (unit && alert) {
       io.emit('alert_updated', alert);
-      io.emit('unit_updated', unit);
       // Notify the specific unit
       io.to(`station_${unit.id}`).emit('mission_received', alert);
       console.log(`[SAU] 📡 Mission ${alert.id} assignée à l'unité ${unit.id}`);
 
-      // --- SIMULATION DE MOUVEMENT TACTIQUE (Mode Démonstration) ---
-      // Skip simulation if unit has sent real GPS recently
-      if (gpsActiveUnits.has(unit.id)) {
-        console.log(`[SAU] 🛰️ Simulation ignorée pour l'unité ${unit.id} (Mode GPS Réel)`);
-        return;
-      }
-
-      const SIM_STEPS = 50;
-      let currentStep = 0;
-      const startLat = unit.lat;
-      const startLng = unit.lng;
-      const destLat = alert.lat;
-      const destLng = alert.lng;
-
-      // Clear existing simulation if any
-      if (simulationIntervals.has(unit.id)) {
-        clearInterval(simulationIntervals.get(unit.id));
-      }
-
-      const simInterval = setInterval(async () => {
-        const { data: currentUnit } = await supabase.from('units').select('status').eq('id', unit.id).single();
-        if (!currentUnit || currentUnit.status !== 'en_route' || currentStep >= SIM_STEPS) {
-          clearInterval(simInterval);
-          simulationIntervals.delete(unit.id);
-          return;
-        }
-        currentStep++;
-        const newLat = startLat + (destLat - startLat) * (currentStep / SIM_STEPS);
-        const newLng = startLng + (destLng - startLng) * (currentStep / SIM_STEPS);
-        
-        const { data: updatedUnit } = await supabase.from('units').update({ lat: newLat, lng: newLng }).eq('id', unit.id).select().single();
-        io.emit('unit_moved', updatedUnit);
-        
-        if (currentStep === SIM_STEPS) {
-          const { data: siteUnit } = await supabase.from('units').update({ status: 'on_site' }).eq('id', unit.id).select().single();
-          io.emit('unit_updated', siteUnit);
-          simulationIntervals.delete(unit.id);
-        }
-      }, 2000); // 2s is enough for demo without being too spammy
-
-      simulationIntervals.set(unit.id, simInterval);
+      // Mode Démonstration retiré: La navigation est uniquement déclenchée par l'API GPS de l'unité
     }
   });
 

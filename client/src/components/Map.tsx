@@ -307,20 +307,13 @@ export default function Map({
   // Handle route fetching behaviors (Simulated vs Live)
   useEffect(() => {
     if (!selectedAlert) {
-      stopAnimation();
       setRoute([]);
       setVehiclePos(null);
       return;
     }
 
-    if (!isLiveUnitMode) {
-      // STATIC / SIMULATED ROUTING
-      const station = stations?.find((s: any) => s.id === selectedAlert.station_id);
-      const start: [number, number] = station
-        ? [Number(station.lng), Number(station.lat)]
-        : [center[1], center[0]];
-      getRoute(start);
-    }
+    // Suppression du calcul de route statique depuis la caserne.
+    // L'itinéraire est géré et affiché uniquement par l'unité elle-même.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAlert?.id, selectedAlert?.status, isLiveUnitMode]);
 
@@ -373,65 +366,7 @@ export default function Map({
     }
   }, [isLiveUnitMode, navigationActive, selectedAlert, getRoute]);
 
-  // --- rAF animation loop ---
-  const stopAnimation = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    segmentStartTimeRef.current = null;
-  }, []);
-
-  const animate = useCallback((timestamp: number) => {
-    const r = routeRef.current;
-    const seg = segmentRef.current;
-
-    if (!r || seg >= r.length - 1) {
-      stopAnimation();
-      return;
-    }
-
-    if (segmentStartTimeRef.current === null) {
-      segmentStartTimeRef.current = timestamp;
-    }
-
-    const elapsed = timestamp - segmentStartTimeRef.current;
-    const t = Math.min(elapsed / SEGMENT_DURATION_MS, 1);
-
-    const p1 = r[seg];
-    const p2 = r[seg + 1];
-
-    // Interpolated position
-    const lat = lerp(p1[0], p2[0], t);
-    const lng = lerp(p1[1], p2[1], t);
-    setVehiclePos([lat, lng]);
-
-    // Heading
-    const bear = calcBearing(p1, p2);
-    setRotation(bear);
-
-    if (t >= 1) {
-      // Advance to next segment
-      segmentRef.current = seg + 1;
-      segmentStartTimeRef.current = null;
-      onVehicleProgress?.(seg + 1);
-    }
-
-    rafRef.current = requestAnimationFrame(animate);
-  }, [stopAnimation, onVehicleProgress]);
-
-  // Start / stop animation based on navigationActive
-  useEffect(() => {
-    if (!isLiveUnitMode && navigationActive && route.length > 1) {
-        stopAnimation();
-        segmentRef.current = 0;
-        segmentStartTimeRef.current = null;
-        rafRef.current = requestAnimationFrame(animate);
-    } else if (!isLiveUnitMode) {
-        stopAnimation();
-    }
-    return stopAnimation;
-  }, [navigationActive, route, animate, stopAnimation, isLiveUnitMode]);
+  // La simulation d'animation locale n'existe plus. Tout est géré par les événements GPS réels.
 
   // LIVE MODE: smooth interpolation + bearing + route progress + Snap-to-Road
   const lastCenterRef = useRef<[number, number]>(center);
