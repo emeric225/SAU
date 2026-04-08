@@ -333,7 +333,7 @@ app.post('/api/auth/login', async (req, res) => {
         .neq('status', 'resolved')
         .order('created_at', { ascending: false })
         .limit(1)
-      let activeAlertData = activeAlert;
+      let activeAlertData = activeAlert && activeAlert.length > 0 ? activeAlert[0] : null;
       
       // Auto-fix: if the unit thinks it is deployed but there is no active mission
       if (!activeAlertData && unit.status !== 'available') {
