@@ -127,11 +127,16 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
   const routingControlRef = useRef<any>(null);
 
   useEffect(() => {
-    if (!map || waypoints.length < 2 || !active) return;
+    if (!map || !active || !waypoints || waypoints.length < 2) return;
 
-    // Wait until L.Routing is attached to L
+    // Critical: Ensure Leaflet is global for plugins
+    if (typeof window !== 'undefined') {
+      (window as any).L = L;
+    }
+
+    // Wait until L.Routing is correctly attached
     if (!(L as any).Routing || !(L as any).Routing.control) {
-      console.warn('[RoutingMachine] L.Routing not ready yet');
+      console.warn('[RoutingMachine] L.Routing not ready');
       return;
     }
 
@@ -162,33 +167,26 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
         onRouteUpdate(route);
       });
     } else {
-      // Check if distance between new start and old start is > 50m to avoid flickering recalculation
       const currentWaypoints = routingControlRef.current.getWaypoints();
-      const dist = currentWaypoints[0].latLng ? distanceMeters(
-        [currentWaypoints[0].latLng.lat, currentWaypoints[0].latLng.lng], 
+      const startChanged = !currentWaypoints[0].latLng || distanceMeters(
+        [currentWaypoints[0].latLng.lat, currentWaypoints[0].latLng.lng],
         [waypoints[0].lat, waypoints[0].lng]
-      ) : 999;
-
-      // Also check if destination changed
-      const destDist = currentWaypoints[1].latLng ? distanceMeters(
+      ) > 50;
+      
+      const destChanged = !currentWaypoints[1].latLng || distanceMeters(
         [currentWaypoints[1].latLng.lat, currentWaypoints[1].latLng.lng],
         [waypoints[1].lat, waypoints[1].lng]
-      ) : 999;
+      ) > 10;
 
-      if (dist > 50 || destDist > 5) {
+      if (startChanged || destChanged) {
         routingControlRef.current.setWaypoints(waypoints);
       }
     }
-
-    return () => {
-      if (routingControlRef.current) {
-        // map.removeControl(routingControlRef.current); // Keep instance alive
-      }
-    };
-  }, [map, waypoints, onRouteUpdate]);
+  }, [map, waypoints, onRouteUpdate, active]);
 
   return null;
 }
+
 
 function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter, speed }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void, speed: number }) {
   const map = useMap();
@@ -265,6 +263,7 @@ export default function Map({
   // Safe import for Leaflet Routing Machine
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      (window as any).L = L;
       // @ts-ignore
       import('leaflet-routing-machine').then(() => {
         setLrmReady(true);
