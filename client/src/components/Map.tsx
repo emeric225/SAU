@@ -199,10 +199,12 @@ function MapRotator({ bearing, active }: { bearing: number; active: boolean }) {
 function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void }) {
   const map = useMapEvents({
     dragstart: () => {
-      // Si l'utilisateur touche la carte, on stoppe le suivi automatique
-      if (navigationActive) {
-        setAutoCenter(false);
-      }
+      // Si l'utilisateur touche la carte, on stoppe le suivi automatique pour permettre l'exploration
+      setAutoCenter(false);
+    },
+    zoomstart: () => {
+      // Pareil pour le zoom manuel
+      setAutoCenter(false);
     }
   });
 
@@ -365,6 +367,13 @@ export default function Map({
       prevNavigationActive.current = false;
     }
   }, [isLiveUnitMode, navigationActive, selectedAlert, getRoute]);
+
+  // Réactiver le centrage auto quand on change d'alerte sélectionnée (pour le QG notamment)
+  useEffect(() => {
+    if (selectedAlert?.id) {
+      setAutoCenter(true);
+    }
+  }, [selectedAlert?.id]);
 
   // La simulation d'animation locale n'existe plus. Tout est géré par les événements GPS réels.
 
@@ -559,7 +568,7 @@ export default function Map({
       </MapContainer>
 
       {/* RECENTER BUTTON OVERLAY */}
-      {navigationActive && !autoCenter && (
+      {!autoCenter && (
         <button 
           onClick={() => setAutoCenter(true)}
           className={styles.tacticalRecenterBtn}
