@@ -57,11 +57,15 @@ export default function UnitInterface() {
   }, []);
 
   const requestWakeLock = useCallback(async () => {
-    if ('wakeLock' in navigator) {
+    if (typeof window !== 'undefined' && 'wakeLock' in navigator) {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
       } catch (e) { console.warn('[SAU] Wake Lock failed', e); }
     }
+  }, []);
+
+  const onRouteDataReady = useCallback((d: any) => {
+    setRouteData(d);
   }, []);
 
   const playSiren = useCallback((type: 'mission' | 'approach' = 'mission') => {
@@ -236,10 +240,10 @@ export default function UnitInterface() {
         // Logic check: approach alert
         if (mission && unit?.status === 'en_route') {
            const dist = distanceMeters([lat, lng], [mission.lat, mission.lng]);
-           if (dist < 150 && !mission.approachAlertTriggered) {
+           if (dist < 150) {
               playSiren('approach');
               showToast('🏁 DESTINATION PROCHE (< 150m)', 'warning');
-              mission.approachAlertTriggered = true;
+              // mission approach alert logic handled elsewhere if needed, avoids prop mutation
            }
         }
         
@@ -435,10 +439,10 @@ export default function UnitInterface() {
             selfUnitId={unit.id}
             selectedAlert={mission}
             navigationActive={unit?.status === 'en_route'}
-            onRouteDataReady={(d) => setRouteData(d)}
             center={gpsPos}
             isLiveUnitMode={true}
             speed={speed}
+            onRouteDataReady={onRouteDataReady}
           />
         ) : (
           <div className={styles.gpsLoader}>

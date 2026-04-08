@@ -129,20 +129,19 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
   useEffect(() => {
     if (!map || !active || !waypoints || waypoints.length < 2) return;
 
-    // Critical: Ensure Leaflet is global for plugins
     if (typeof window !== 'undefined') {
       (window as any).L = L;
     }
 
-    // Wait until L.Routing is correctly attached
     if (!(L as any).Routing || !(L as any).Routing.control) {
       console.warn('[RoutingMachine] L.Routing not ready');
       return;
     }
 
+    // Initialize control if not exists
     if (!routingControlRef.current) {
-      routingControlRef.current = (L as any).Routing.control({
-        waypoints,
+      const routingControl = (L as any).Routing.control({
+        waypoints: waypoints,
         lineOptions: {
           styles: [
             { color: '#3b82f6', opacity: 0.8, weight: 8 },
@@ -160,26 +159,26 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
           serviceUrl: 'https://router.project-osrm.org/route/v1',
           profile: 'driving'
         })
-      }).addTo(map);
+      });
+      
+      routingControl.addTo(map);
+      routingControlRef.current = routingControl;
 
-      routingControlRef.current.on('routesfound', (e: any) => {
-        const route = e.routes[0];
-        onRouteUpdate(route);
+      routingControl.on('routesfound', function(e: any) {
+        if (e.routes && e.routes.length > 0) {
+          onRouteUpdate(e.routes[0]);
+        }
       });
     } else {
-      const currentWaypoints = routingControlRef.current.getWaypoints();
-      const startChanged = !currentWaypoints[0].latLng || distanceMeters(
-        [currentWaypoints[0].latLng.lat, currentWaypoints[0].latLng.lng],
-        [waypoints[0].lat, waypoints[0].lng]
-      ) > 50;
+      // Update waypoints if changed
+      const ctrl = routingControlRef.current;
+      const current = ctrl.getWaypoints();
       
-      const destChanged = !currentWaypoints[1].latLng || distanceMeters(
-        [currentWaypoints[1].latLng.lat, currentWaypoints[1].latLng.lng],
-        [waypoints[1].lat, waypoints[1].lng]
-      ) > 10;
+      const startDist = current[0]?.latLng ? distanceMeters([current[0].latLng.lat, current[0].latLng.lng], [waypoints[0].lat, waypoints[0].lng]) : 999;
+      const destDist = current[1]?.latLng ? distanceMeters([current[1].latLng.lat, current[1].latLng.lng], [waypoints[1].lat, waypoints[1].lng]) : 999;
 
-      if (startChanged || destChanged) {
-        routingControlRef.current.setWaypoints(waypoints);
+      if (startDist > 50 || destDist > 5) {
+        ctrl.setWaypoints(waypoints);
       }
     }
   }, [map, waypoints, onRouteUpdate, active]);
