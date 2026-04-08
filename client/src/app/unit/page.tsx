@@ -41,6 +41,7 @@ export default function UnitInterface() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [speed, setSpeed] = useState(0);
 
   // ─── Refs ────────────────────────────────────────────────────────────────────
   const gpsLockedRef = useRef(false);
@@ -230,6 +231,7 @@ export default function UnitInterface() {
           showToast('📍 GPS VERROUILLÉ', 'success', 2000);
         }
         setGpsPos([lat, lng]);
+        setSpeed(speed);
 
         // Logic check: approach alert
         if (mission && unit?.status === 'en_route') {
@@ -436,6 +438,7 @@ export default function UnitInterface() {
             onRouteDataReady={(d) => setRouteData(d)}
             center={gpsPos}
             isLiveUnitMode={true}
+            speed={speed}
           />
         ) : (
           <div className={styles.gpsLoader}>

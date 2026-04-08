@@ -1,9 +1,9 @@
-'use client';
-
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, GeoJSON, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet-routing-machine';
+import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import styles from '../app/unit/unit.module.css';
 
 // POINT 3 & 11: Operational Zones (GeoJSON)
@@ -37,43 +37,43 @@ const sectors: any = {
   ]
 };
 
-// Fix for default Leaflet icons in Next.js
+// Fix for default Leaflet icons
 if (typeof window !== 'undefined') {
-  const DefaultIcon = L.icon({
+  delete (L.Icon.Default.prototype as any)._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
     iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
     shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
   });
-  L.Marker.prototype.options.icon = DefaultIcon;
 }
 
 // --- Icons ---
-const VehicleIcon = (rotation: number) => L.divIcon({
+const VehicleIcon = (rotation: number, status: string) => L.divIcon({
   className: 'custom-vehicle-icon',
-  html: `<div style="transform: rotate(${rotation}deg); transition: transform 0.25s ease; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
-      <svg width="40" height="40" viewBox="0 0 24 24" style="filter: drop-shadow(0 0 8px rgba(225,29,72,0.9));">
-        <path d="M12 2L2 22L12 18L22 22L12 2Z" fill="url(#grad1)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+  html: `<div style="transform: rotate(${rotation}deg); transition: transform 0.3s ease-out; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;">
+      <svg width="44" height="44" viewBox="0 0 24 24" style="filter: drop-shadow(0 0 10px rgba(225,29,72,0.8));">
+        <path d="M12 2L4 20L12 17L20 20L12 2Z" fill="url(#gradUnit)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
         <defs>
-          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient id="gradUnit" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" style="stop-color:#e11d48;stop-opacity:1" />
             <stop offset="100%" style="stop-color:#be123c;stop-opacity:1" />
           </linearGradient>
         </defs>
       </svg>
-      <div style="position: absolute; top: 12px; font-size: 14px;">🚒</div>
-      <div style="position: absolute; top: -2px; left: 10px; width: 6px; height: 6px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 10px #3b82f6; animation: siren-flash 0.4s infinite alternate;"></div>
-      <div style="position: absolute; top: -2px; right: 10px; width: 6px; height: 6px; background: #e11d48; border-radius: 50%; box-shadow: 0 0 10px #e11d48; animation: siren-flash 0.4s 0.2s infinite alternate;"></div>
+      <div style="position: absolute; font-size: 16px;">${status === 'en_route' ? '🚒' : '📍'}</div>
+      ${status === 'en_route' ? `
+      <div style="position: absolute; top: 0px; left: 8px; width: 8px; height: 8px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 12px #3b82f6; animation: siren-flash 0.3s infinite alternate;"></div>
+      <div style="position: absolute; top: 0px; right: 8px; width: 8px; height: 8px; background: #e11d48; border-radius: 50%; box-shadow: 0 0 12px #e11d48; animation: siren-flash 0.3s 0.15s infinite alternate;"></div>
+      ` : ''}
     </div>`,
-  iconSize: [40, 40],
-  iconAnchor: [20, 20],
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
 });
 
 const StationIcon = (status: string) => {
-  let color = '#3b82f6'; // blue (available)
-  if (status === 'busy') color = '#f59e0b'; // orange (busy)
-  if (status === 'offline' || status === 'unactive') color = '#64748b'; // slate (offline)
-  
+  let color = '#3b82f6';
+  if (status === 'busy') color = '#f59e0b';
+  if (status === 'offline' || status === 'unactive') color = '#64748b';
   return L.divIcon({
     className: 'custom-station-icon',
     html: `<div style="background: ${color}; width: 32px; height: 32px; border-radius: 10px; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px ${color}66;">
@@ -84,48 +84,16 @@ const StationIcon = (status: string) => {
   });
 };
 
-const UnitMapIcon = (type: string, status: string) => {
-  let color = '#10b981'; // green (available)
-  if (status === 'en_route') color = '#f59e0b'; // orange
-  if (status === 'on_site') color = '#ef4444'; // red
-  const emoji = type === 'ambulance' ? '🚑' : 
-                type === 'moto' ? '🏍️' : 
-                type === 'command' ? '🚙' :
-                type === 'tanker' ? '🚚' : '🚒';
-  return L.divIcon({
-    className: 'custom-unit-icon',
-    html: `<div style="background: ${color}; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px ${color}66; font-size: 20px;">
-            ${emoji}
-          </div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-  });
-};
-
 const AlertIcon = (status: string, type: string) => L.divIcon({
   className: 'custom-alert-icon',
-  html: `<div style="background: ${status === 'pending' ? '#e11d48' : '#fbbf24'}; width: 40px; height: 40px; border-radius: 50%; border: 3px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 20px ${status === 'pending' ? 'rgba(225,29,72,0.6)' : 'rgba(251,191,36,0.6)'}; ${status === 'pending' ? 'animation: alert-pulse 1.2s infinite;' : ''}">
-          <span style="font-size: 20px;">${type === 'fire' ? '🔥' : type === 'medical' ? '🚑' : '🚗'}</span>
+  html: `<div style="background: ${status === 'pending' ? '#e11d48' : '#fbbf24'}; width: 42px; height: 42px; border-radius: 50%; border: 3px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 20px ${status === 'pending' ? 'rgba(225,29,72,0.7)' : 'rgba(251,191,36,0.7)'}; ${status === 'pending' ? 'animation: alert-pulse 1s infinite;' : ''}">
+          <span style="font-size: 22px;">${type === 'fire' ? '🔥' : type === 'medical' ? '🚑' : '🚗'}</span>
         </div>`,
-  iconSize: [40, 40],
-  iconAnchor: [20, 20],
+  iconSize: [42, 42],
+  iconAnchor: [21, 21],
 });
 
-// --- Lerp helpers ---
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
-}
-
-function calcBearing(p1: [number, number], p2: [number, number]): number {
-  const dLon = (p2[1] - p1[1]) * (Math.PI / 180);
-  const lat1 = p1[0] * (Math.PI / 180);
-  const lat2 = p2[0] * (Math.PI / 180);
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  return Math.atan2(y, x) * (180 / Math.PI);
-}
-
-// Haversine distance in meters between two [lat, lng] points
+// --- Utils ---
 function distanceMeters(p1: [number, number], p2: [number, number]): number {
   const R = 6371000;
   const dLat = (p2[0] - p1[0]) * Math.PI / 180;
@@ -136,7 +104,6 @@ function distanceMeters(p1: [number, number], p2: [number, number]): number {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Projection sur un segment
 function getClosestPointOnSegment(p: [number, number], a: [number, number], b: [number, number]): [number, number] {
   const atob = { x: b[0] - a[0], y: b[1] - a[1] };
   const atop = { x: p[0] - a[0], y: p[1] - a[1] };
@@ -146,7 +113,6 @@ function getClosestPointOnSegment(p: [number, number], a: [number, number], b: [
   return [a[0] + atob.x * t, a[1] + atob.y * t];
 }
 
-// Smooth angle interpolation (shortest arc)
 function lerpAngle(a: number, b: number, t: number): number {
   let diff = b - a;
   while (diff > 180) diff -= 360;
@@ -154,104 +120,126 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + diff * t;
 }
 
-// --- MapRotator: Rotates the tile pane (heading-up) without breaking Leaflet ---
-function MapRotator({ bearing, active }: { bearing: number; active: boolean }) {
+// --- Components ---
+
+function RoutingMachine({ waypoints, onRouteUpdate }: { waypoints: L.LatLng[], onRouteUpdate: (data: any) => void }) {
   const map = useMap();
+  const routingControlRef = useRef<any>(null);
 
   useEffect(() => {
-    const tilePane = map.getPanes().tilePane as HTMLElement;
-    const overlayPane = map.getPanes().overlayPane as HTMLElement;
-    const shadowPane = map.getPanes().shadowPane as HTMLElement;
-    const markerPane = map.getPanes().markerPane as HTMLElement;
+    if (!map || waypoints.length < 2) return;
 
-    if (!tilePane) return;
+    if (!routingControlRef.current) {
+      routingControlRef.current = (L as any).Routing.control({
+        waypoints,
+        lineOptions: {
+          styles: [
+            { color: '#3b82f6', opacity: 0.8, weight: 8 },
+            { color: '#60a5fa', opacity: 0.4, weight: 12 }
+          ],
+          extendToWaypoints: true,
+          missingRouteTolerance: 10
+        },
+        createMarker: () => null,
+        addWaypoints: false,
+        draggableWaypoints: false,
+        fitSelectedRoutes: false,
+        show: false,
+        router: (L as any).Routing.osrmv1({
+          serviceUrl: 'https://router.project-osrm.org/route/v1',
+          profile: 'driving'
+        })
+      }).addTo(map);
 
-    if (active) {
-      // Rotate only background tiles — markers stay upright
-      const rot = `rotate(${-bearing}deg) scale(1.55)`;
-      tilePane.style.transform = rot;
-      tilePane.style.transformOrigin = 'center center';
-      tilePane.style.transition = 'transform 0.4s linear';
-      // Keep overlay (polylines) rotating with tiles for correct heading
-      overlayPane.style.transform = rot;
-      overlayPane.style.transformOrigin = 'center center';
-      overlayPane.style.transition = 'transform 0.4s linear';
-      // Shadow pane too
-      shadowPane.style.transform = rot;
-      shadowPane.style.transformOrigin = 'center center';
-      // Counter-rotate markers so they stay upright
-      markerPane.style.transform = `rotate(${bearing}deg) scale(${1/1.55})`;
-      markerPane.style.transformOrigin = 'center center';
-      markerPane.style.transition = 'transform 0.4s linear';
-    } else {
-      // Reset all transforms
-      [tilePane, overlayPane, shadowPane, markerPane].forEach(p => {
-        p.style.transform = '';
-        p.style.transition = '';
+      routingControlRef.current.on('routesfound', (e: any) => {
+        const route = e.routes[0];
+        onRouteUpdate(route);
       });
+    } else {
+      // Check if distance between new start and old start is > 50m to avoid flickering recalculation
+      const currentWaypoints = routingControlRef.current.getWaypoints();
+      const dist = currentWaypoints[0].latLng ? distanceMeters(
+        [currentWaypoints[0].latLng.lat, currentWaypoints[0].latLng.lng], 
+        [waypoints[0].lat, waypoints[0].lng]
+      ) : 999;
+
+      // Also check if destination changed
+      const destDist = currentWaypoints[1].latLng ? distanceMeters(
+        [currentWaypoints[1].latLng.lat, currentWaypoints[1].latLng.lng],
+        [waypoints[1].lat, waypoints[1].lng]
+      ) : 999;
+
+      if (dist > 50 || destDist > 5) {
+        routingControlRef.current.setWaypoints(waypoints);
+      }
     }
-  }, [bearing, active, map]);
+
+    return () => {
+      if (routingControlRef.current) {
+        // map.removeControl(routingControlRef.current); // Keep instance alive
+      }
+    };
+  }, [map, waypoints, onRouteUpdate]);
 
   return null;
 }
 
-// --- MapRecenter: locks map onto position in navigation mode ---
-function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void }) {
-  const map = useMapEvents({
-    dragstart: () => {
-      // Si l'utilisateur touche la carte, on stoppe le suivi automatique pour permettre l'exploration
-      setAutoCenter(false);
-    },
-    zoomstart: () => {
-      // Pareil pour le zoom manuel
-      setAutoCenter(false);
-    }
+function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter, speed }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void, speed: number }) {
+  const map = useMap();
+
+  useMapEvents({
+    dragstart: () => setAutoCenter(false),
+    zoomstart: () => setAutoCenter(false)
   });
 
   useEffect(() => {
     if (!autoCenter || !map) return;
-    
-    // Au lieu de setView qui fige la carte, on sépare le Zoom et le PanTo pour plus de stabilité
-    const targetZoom = navigationActive ? 19 : 14;
-    
-    // Si le zoom est déjà bon, on fait juste un panTo très fluide
+
+    // Zoom adaptatif
+    let targetZoom = 15;
+    if (navigationActive) {
+      const speedKmh = speed * 3.6;
+      if (speedKmh < 10) targetZoom = 19;
+      else if (speedKmh < 40) targetZoom = 18;
+      else if (speedKmh < 80) targetZoom = 16;
+      else targetZoom = 15;
+    } else {
+      targetZoom = 14;
+    }
+
     if (map.getZoom() !== targetZoom) {
       map.setZoom(targetZoom, { animate: true });
     }
-    
-    map.panTo(center, { animate: true, duration: 0.8, easeLinearity: 0.25 });
-  }, [center, map, navigationActive, autoCenter]);
+
+    // Offset: Placer le véhicule en bas à 1/4 (75% du haut)
+    if (navigationActive) {
+      const point = map.project(center, map.getZoom());
+      const offset = map.getSize().y / 4; // Shift up by 1/4 of screen height
+      const targetPoint = point.subtract([0, offset]);
+      const targetLatLng = map.unproject(targetPoint, map.getZoom());
+      map.panTo(targetLatLng, { animate: true, duration: 1.2, easeLinearity: 0.1 });
+    } else {
+      map.panTo(center, { animate: true, duration: 0.8 });
+    }
+  }, [center, map, navigationActive, autoCenter, speed]);
+
   return null;
 }
 
-// --- MovingUnit: Uses CSS transitions for smooth GPS updates instead of heavy React state 60fps loops ---
-function MovingUnit({ id, type, status, name, lat, lng }: { id: string; type: string; status: string; name: string; lat: number; lng: number }) {
-  return (
-    <Marker position={[lat, lng]} icon={UnitMapIcon(type, status)}>
-      <Popup>
-        <strong>{name}</strong><br />
-        Statut: {status.toUpperCase()}
-      </Popup>
-    </Marker>
-  );
-}
-
-// --- Props ---
+// --- Main Map Component ---
 interface MapProps {
   stations: any[];
   alerts: any[];
-  center?: [number, number];
+  center?: [number, number]; // This is used as raw GPS pos
   selectedAlert?: any;
   navigationActive?: boolean;
-  onRouteDataReady?: (data: { distanceKm: number; durationMin: number; segmentCount: number }) => void;
-  onVehicleProgress?: (segmentIndex: number) => void;
+  onRouteDataReady?: (data: any) => void;
   units?: any[];
   isLiveUnitMode?: boolean;
   selfUnitId?: string;
+  speed?: number;
+  heading?: number;
 }
-
-// Speed for simulation: avg ~40 km/h = ~11.1 m/s → each segment ~80ms
-const SEGMENT_DURATION_MS = 80;
 
 export default function Map({
   stations,
@@ -260,197 +248,85 @@ export default function Map({
   selectedAlert,
   navigationActive = false,
   onRouteDataReady,
-  onVehicleProgress,
   units = [],
   isLiveUnitMode = false,
-  selfUnitId
+  selfUnitId,
+  speed = 0,
+  heading = 0
 }: MapProps) {
-  const [route, setRoute] = useState<[number, number][]>([]);
-  const [vehiclePos, setVehiclePos] = useState<[number, number] | null>(null);
+  const [vehiclePos, setVehiclePos] = useState<[number, number]>(center);
   const [rotation, setRotation] = useState(0);
   const [smoothRotation, setSmoothRotation] = useState(0);
   const [autoCenter, setAutoCenter] = useState(true);
-  const prevNavigationActive = useRef(false);
-  const smoothRotRef = useRef(0);
+  const [route, setRoute] = useState<any>(null);
+  const [guidance, setGuidance] = useState<string | null>(null);
+  const [signalStatus, setSignalStatus] = useState<'solid' | 'weak'>('solid');
 
-  // rAF state
-  const rafRef = useRef<number | null>(null);
-  const segmentRef = useRef(0);
-  const segmentStartTimeRef = useRef<number | null>(null);
-  const routeRef = useRef<[number, number][]>([]);
+  const rotationRef = useRef(0);
+  const lastCenterUpdateRef = useRef(center);
+  const lastTimeRef = useRef(Date.now());
+  const gpsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Keep routeRef in sync
-  useEffect(() => { routeRef.current = route; }, [route]);
-
-  // Fetch route from OSRM
-  const getRoute = useCallback(async (startLnLat: [number, number]) => {
-    if (!selectedAlert || isNaN(startLnLat[0]) || isNaN(startLnLat[1])) return;
-    const alertLat = selectedAlert.location?.lat ?? selectedAlert.lat;
-    const alertLng = selectedAlert.location?.lng ?? selectedAlert.lng;
-    if (!alertLat || !alertLng) return;
-    const url = `https://router.project-osrm.org/route/v1/driving/${startLnLat[0]},${startLnLat[1]};${alertLng},${alertLat}?overview=full&geometries=geojson`;
-    try {
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.routes && data.routes[0]) {
-        const coords: [number, number][] = data.routes[0].geometry.coordinates.map((c: any) => [c[1], c[0]]);
-        const distanceKm = data.routes[0].distance / 1000;
-        const durationMin = data.routes[0].duration / 60;
-        setRoute(coords);
-        if (!isLiveUnitMode) {
-           segmentRef.current = 0;
-           setVehiclePos(coords[0]);
-        }
-        onRouteDataReady?.({ distanceKm, durationMin, segmentCount: coords.length });
-      }
-    } catch (err) { }
-  }, [selectedAlert, isLiveUnitMode, onRouteDataReady]);
-
-  // Handle route fetching behaviors (Simulated vs Live)
+  // Monitor GPS Health
   useEffect(() => {
-    if (!selectedAlert) {
-      setRoute([]);
-      setVehiclePos(null);
-      return;
-    }
-
-    // Suppression du calcul de route statique depuis la caserne.
-    // L'itinéraire est géré et affiché uniquement par l'unité elle-même.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAlert?.id, selectedAlert?.status, isLiveUnitMode]);
-
-  // LIVE GPS POLLING AND RECALCULATION
-  const liveCoordsRef = useRef<[number, number]>([center[1], center[0]]);
-  useEffect(() => {
-    // OSRM wants [lng, lat]
-    liveCoordsRef.current = [center[1], center[0]];
+    if (gpsTimeoutRef.current) clearTimeout(gpsTimeoutRef.current);
+    setSignalStatus('solid');
+    gpsTimeoutRef.current = setTimeout(() => {
+      setSignalStatus('weak');
+    }, 6000);
+    return () => { if (gpsTimeoutRef.current) clearTimeout(gpsTimeoutRef.current); };
   }, [center]);
 
-  // Find nearest route segment to current GPS position with geometric projection
-  const findNearestSegment = useCallback((pos: [number, number], r: [number, number][]) => {
-    if (r.length < 2) return { index: 0, proj: pos, distance: 0 };
-    let minProjDist = Infinity;
-    let projPoint = pos;
-    let nearestIndex = 0;
+  // LERP & Snapping Logic
+  useEffect(() => {
+    const targetGPS = center;
+    const prevPos = lastCenterUpdateRef.current;
     
-    // Scan all segments to find the absolute closest projection
-    for (let i = 0; i < r.length - 1; i++) {
-        const p1 = r[i];
-        const p2 = r[i+1];
-        const proj = getClosestPointOnSegment(pos, p1, p2);
-        const dist = distanceMeters(pos, proj);
-        
-        if (dist < minProjDist) {
-            minProjDist = dist;
-            projPoint = proj;
-            nearestIndex = i;
-        }
-    }
-    return { index: nearestIndex, proj: projPoint, distance: minProjDist };
-  }, []);
-
-  useEffect(() => {
-    if (isLiveUnitMode && navigationActive && selectedAlert) {
-      // Reset autoCenter when navigation starts
-      if (!prevNavigationActive.current) {
-        setAutoCenter(true);
-        prevNavigationActive.current = true;
-      }
-      // Initial fetch
-      getRoute(liveCoordsRef.current);
-      // Recalculate every 15s based on real position
-      const interval = setInterval(() => {
-        getRoute(liveCoordsRef.current);
-      }, 15000);
-      return () => clearInterval(interval);
-    } else {
-      prevNavigationActive.current = false;
-    }
-  }, [isLiveUnitMode, navigationActive, selectedAlert, getRoute]);
-
-  // Réactiver le centrage auto quand on change d'alerte sélectionnée (pour le QG notamment)
-  useEffect(() => {
-    if (selectedAlert?.id) {
-      setAutoCenter(true);
-    }
-  }, [selectedAlert?.id]);
-
-  // La simulation d'animation locale n'existe plus. Tout est géré par les événements GPS réels.
-
-  // LIVE MODE: smooth interpolation + bearing + route progress + Snap-to-Road
-  const lastCenterRef = useRef<[number, number]>(center);
-  const liveInterpRef = useRef<number | null>(null);
-  const lastTimeRef = useRef<number>(Date.now());
-  
-  useEffect(() => {
-    if (isLiveUnitMode && navigationActive) {
-      const currentTime = Date.now();
-      const timeDiff = (currentTime - lastTimeRef.current) / 1000; // in seconds
-      lastTimeRef.current = currentTime;
-
-      const p1 = lastCenterRef.current; // Previous snapped/interpolated position
-      const p2GPS = center; // Raw new GPS position
-
-      // Skip identical GPS pings
-      if (p1[0] === p2GPS[0] && p1[1] === p2GPS[1]) return;
-
-      const currentRoute = routeRef.current;
-      let targetPos = p2GPS;
+    // Snapping
+    let snappedPos: [number, number] = targetGPS;
+    if (isLiveUnitMode && navigationActive && route && route.coordinates) {
+      let minDist = Infinity;
+      let bestProj: [number, number] = targetGPS;
       
-      // 1. SNAP-TO-ROAD Logic
-      if (currentRoute && currentRoute.length > 1) {
-        const { index, proj, distance } = findNearestSegment(p2GPS, currentRoute);
-        
-        // Tolerance: If GPS drifts > 20 meters, we recalculate (dynamic rerouting)
-        if (distance > 20) {
-           console.log(`[MAP] GPS deviated by ${distance.toFixed(1)}m. Rerouting...`);
-           getRoute(p2GPS); // Force reroute
-           targetPos = p2GPS;
-        } else {
-           // Snap to geometry
-           targetPos = proj;
-           // Update progress (only move forward to avoid moonwalking if GPS drifts backwards)
-           if (index >= segmentRef.current) {
-             segmentRef.current = index;
-             onVehicleProgress?.(index);
-           }
+      // Opti: check segments near current index if possible, here we search all for robust snapping
+      const coords = route.coordinates;
+      for (let i = 0; i < coords.length - 1; i++) {
+        const p1: [number, number] = [coords[i].lat, coords[i].lng];
+        const p2: [number, number] = [coords[i+1].lat, coords[i+1].lng];
+        const proj = getClosestPointOnSegment(targetGPS, p1, p2);
+        const dist = distanceMeters(targetGPS, proj);
+        if (dist < minDist) {
+          minDist = dist;
+          bestProj = proj;
         }
       }
-
-      // 2. ANTI-JITTER & Bearing
-      const physDist = distanceMeters(p1, targetPos);
-      const speed = timeDiff > 0 ? physDist / timeDiff : 0; // m/s
       
-      // Update bearing only if speed > 1.38 m/s (~5 km/h) to prevent shaking at red lights
-      if (physDist > 2 && speed > 1.38) {
-        const bear = calcBearing(p1, targetPos);
-        setRotation(bear);
+      // If within 30m of a road, snap it. Otherwise keep raw GPS.
+      if (minDist < 30) {
+        snappedPos = bestProj;
       }
-
-      // 3. DIRECT UPDATE (Clean CSS transition handles smoothing)
-      setVehiclePos(targetPos);
-      lastCenterRef.current = targetPos;
-
-    } else if (isLiveUnitMode && !navigationActive) {
-      // Idle — place vehicle at GPS, no forced rotation
-      setVehiclePos(center);
-      setRotation(0);
-      lastCenterRef.current = center;
-      segmentRef.current = 0;
     }
-  }, [center, isLiveUnitMode, navigationActive, findNearestSegment, onVehicleProgress, getRoute, vehiclePos]);
 
-  // Smooth rotation with exponential filter to avoid sudden arrow jumps
+    // Auto-Rotation (Bearing)
+    const distForHeading = distanceMeters(prevPos, snappedPos);
+    if (distForHeading > 1.5) { // Only update rotation if moved significantly
+      const bear = calcBearing(prevPos, snappedPos);
+      setRotation(bear);
+    }
+
+    // Direct update (CSS handles the 1s smooth glide)
+    setVehiclePos(snappedPos);
+    lastCenterUpdateRef.current = snappedPos;
+
+  }, [center, isLiveUnitMode, navigationActive, route]);
+
+  // Smooth rotation filter
   useEffect(() => {
-    const targetRot = rotation;
     let rafId: number;
     const step = () => {
-      const current = smoothRotRef.current;
-      const next = lerpAngle(current, targetRot, 0.12); // 12% per frame = smooth
-      const diff = Math.abs(next - current);
-      smoothRotRef.current = next;
-      setSmoothRotation(next);
-      if (diff > 0.05) {
+      rotationRef.current = lerpAngle(rotationRef.current, rotation, 0.1);
+      setSmoothRotation(rotationRef.current);
+      if (Math.abs(rotationRef.current - rotation) > 0.1) {
         rafId = requestAnimationFrame(step);
       }
     };
@@ -458,30 +334,47 @@ export default function Map({
     return () => cancelAnimationFrame(rafId);
   }, [rotation]);
 
-  const mapCenter: [number, number] = isLiveUnitMode
-    ? (vehiclePos || center)
-    : (navigationActive && vehiclePos)
-      ? vehiclePos
-      : selectedAlert
-        ? [
-            selectedAlert.location?.lat ?? selectedAlert.lat ?? center[0],
-            selectedAlert.location?.lng ?? selectedAlert.lng ?? center[1]
-          ]
-        : center;
+  function calcBearing(p1: [number, number], p2: [number, number]): number {
+    const dLon = (p2[1] - p1[1]) * (Math.PI / 180);
+    const lat1 = p1[0] * (Math.PI / 180);
+    const lat2 = p2[0] * (Math.PI / 180);
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    return Math.atan2(y, x) * (180 / Math.PI);
+  }
+
+  // Guidance Banner update
+  useEffect(() => {
+    if (route && route.instructions) {
+      const instr = route.instructions[0];
+      if (instr) {
+        setGuidance(`${instr.text} (${Math.round(instr.distance)}m)`);
+      }
+    }
+  }, [route]);
+
+  const routingWaypoints = useMemo(() => {
+    if (!selectedAlert || !center) return [];
+    return [
+      L.latLng(center[0], center[1]),
+      L.latLng(selectedAlert.lat, selectedAlert.lng)
+    ];
+  }, [center[0], center[1], selectedAlert?.id]);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#0a0a0a' }}>
-        <MapContainer center={center} zoom={13} maxZoom={22} style={{ height: '100%', width: '100%', zIndex: 0 }} zoomControl={false}>
-        <MapRotator bearing={smoothRotation} active={isLiveUnitMode && navigationActive} />
-        <MapRecenter center={mapCenter} navigationActive={navigationActive} autoCenter={autoCenter} setAutoCenter={setAutoCenter} />
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; CARTO'
-          maxNativeZoom={19}
-          maxZoom={22}
-        />
+    <div className={styles.mapWrapper}>
+      {/* Guidance Banner XXL */}
+      {navigationActive && isLiveUnitMode && guidance && (
+        <div className={styles.guidanceBanner}>
+          <div className={styles.guidanceIcon}>⇅</div>
+          <div className={styles.guidanceText}>{guidance.toUpperCase()}</div>
+          {signalStatus === 'weak' && <div className={styles.weakSignal}>SIG. FAIBLE</div>}
+        </div>
+      )}
 
-
+      <MapContainer center={center} zoom={14} scrollWheelZoom={true} zoomControl={false} className={styles.mapContainerMain}>
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO" />
+        
         {/* POINT 11: Sector Zones */}
         <GeoJSON 
            data={sectors} 
@@ -503,94 +396,58 @@ export default function Map({
              }
            }}
         />
+        
+        <MapRecenter 
+          center={vehiclePos} 
+          navigationActive={navigationActive} 
+          autoCenter={autoCenter} 
+          setAutoCenter={setAutoCenter}
+          speed={speed || 0}
+        />
 
-       {stations.filter((s: any) => s && !isNaN(Number(s.lat)) && !isNaN(Number(s.lng))).map((s: any) => (
-         <Marker key={s.id} position={[Number(s.lat), Number(s.lng)]} icon={StationIcon(s.status || 'available')}>
-           <Popup>
-              <strong>{s.name}</strong><br />
-              Statut: {s.status === 'busy' ? 'En intervention (Engagée)' : s.status === 'offline' ? 'Hors service' : 'Disponible'}
-           </Popup>
-         </Marker>
-       ))}
-        {units
-          .filter((u: any) => u && !isNaN(Number(u.lat)) && !isNaN(Number(u.lng)))
-          .filter((u: any) => u.id !== selfUnitId) // Eviter le dédoublement de l'unité elle-même
-          .map((u: any) => (
-          <MovingUnit             key={u.id}
-            id={u.id}
-            type={u.type}
-            status={u.status}
-            name={u.name}
-            lat={Number(u.lat)}
-            lng={Number(u.lng)}
+        {isLiveUnitMode && navigationActive && selectedAlert && (
+          <RoutingMachine 
+            waypoints={routingWaypoints} 
+            onRouteUpdate={(r) => {
+              setRoute(r);
+              onRouteDataReady?.({ distanceKm: r.summary.totalDistance / 1000, durationMin: r.summary.totalTime / 60 });
+            }}
           />
+        )}
+
+        {/* Stations */}
+        {stations.map(s => (
+          <Marker key={s.id} position={[s.lat, s.lng]} icon={StationIcon(s.status)} />
         ))}
 
-      {alerts.filter(a => {
-        const lat = a.location?.lat ?? a.lat;
-        const lng = a.location?.lng ?? a.lng;
-        return lat && lng && !isNaN(Number(lat)) && !isNaN(Number(lng));
-      }).map((a) => {
-        const lat = Number(a.location?.lat ?? a.lat);
-        const lng = Number(a.location?.lng ?? a.lng);
-        return (
-          <Marker key={a.id} position={[lat, lng]} icon={AlertIcon(a.status, a.type)}>
-            <Popup><strong>URGENCE {a.type.toUpperCase()}</strong><br />Statut: {a.status}</Popup>
+        {/* Alerts */}
+        {alerts.map(a => (
+          <Marker key={a.id} position={[a.lat, a.lng]} icon={AlertIcon(a.status, a.type)}>
+            <Popup><strong>{a.type.toUpperCase()}</strong></Popup>
           </Marker>
-        );
-      })}
+        ))}
 
-      {route.length > 0 && (
-        <>
-          {/* Route traversée (bleu vif) */}
-          <Polyline
-            positions={route.slice(0, segmentRef.current + 1)}
-            color="#60a5fa"
-            weight={5}
-            opacity={0.9}
-          />
-          {/* Route restante (gris translucide) */}
-          <Polyline
-            positions={route.slice(segmentRef.current)}
-            color="#3b82f6"
-            weight={7}
-            opacity={0.25}
-            dashArray="1, 12"
-            lineCap="round"
-          />
-        </>
-      )}
+        {/* Vehicle */}
+        <Marker 
+          position={vehiclePos} 
+          icon={VehicleIcon(smoothRotation, navigationActive ? 'en_route' : 'idle')} 
+          zIndexOffset={1000}
+        />
 
-      {vehiclePos && (
-        <Marker position={vehiclePos} icon={VehicleIcon(smoothRotation)} />
-      )}
-
+        {/* Other Units */}
+        {units.filter(u => u.id !== selfUnitId).map(u => (
+          <Marker key={u.id} position={[u.lat, u.lng]} icon={VehicleIcon(0, 'idle')} />
+        ))}
       </MapContainer>
 
-      {/* RECENTER BUTTON OVERLAY */}
       {!autoCenter && (
-        <button 
-          onClick={() => setAutoCenter(true)}
-          className={styles.tacticalRecenterBtn}
-        >
-          <span>🎯</span> RECENTRER
+        <button onClick={() => setAutoCenter(true)} className={styles.tacticalRecenterBtn}>
+          🎯 RECENTRER
         </button>
       )}
 
       <style>{`
-        @keyframes alert-pulse {
-          0% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.15); opacity: 0.8; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes siren-flash {
-          from { opacity: 0.3; }
-          to { opacity: 1; box-shadow: 0 0 16px currentColor; }
-        }
-        .leaflet-marker-icon.custom-vehicle-icon,
-        .leaflet-marker-icon.custom-unit-icon {
-          transition: transform 1s linear !important;
-        }
+        .leaflet-marker-icon { transition: transform 1s linear !important; }
         .custom-zone-tooltip {
           background: rgba(0, 0, 0, 0.4);
           border: 1px solid rgba(255, 255, 255, 0.2);
@@ -598,16 +455,12 @@ export default function Map({
           box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
           color: white;
           font-weight: 500;
-          font-size: 12px;
-          padding: 4px 8px;
+          font-size: 10px;
+          padding: 2px 6px;
           backdrop-filter: blur(4px);
         }
-        .leaflet-tooltip-top:before,
-        .leaflet-tooltip-bottom:before,
-        .leaflet-tooltip-left:before,
-        .leaflet-tooltip-right:before {
-          border: none !important;
-        }
+        @keyframes siren-flash { from { opacity: 0.2; } to { opacity: 1; filter: brightness(1.5); } }
+        @keyframes alert-pulse { 0% { scale: 1; } 50% { scale: 1.1; opacity: 0.8; } 100% { scale: 1; } }
       `}</style>
     </div>
   );

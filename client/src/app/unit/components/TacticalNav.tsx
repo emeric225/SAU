@@ -25,23 +25,14 @@ export const TacticalNav: React.FC<TacticalNavProps> = ({
   if (unitStatus === 'en_route') {
     return (
       <>
-        {/* Instruction Bar */}
-        <div className={styles.navInstructionBar}>
-          <div className={styles.navArrow}>↑</div>
-          <div className={styles.navInstruction}>
-            <div className={styles.navInstructionMain}>
-              {routeData ? `CONTINUER VERS ${mission.type?.toUpperCase() || 'URGENCE'}` : 'CALCUL...'}
-            </div>
-            {routeData && (
-              <div className={styles.navInstructionSub}>
-                {routeData.distanceKm.toFixed(1)} km restants
-              </div>
-            )}
+        {/* L'instruction de navigation est maintenant gérée par le composant Map en XXL */}
+        
+        {/* Floating Call Button if needed */}
+        {mission.phone && (
+          <div style={{ position: 'fixed', top: '110px', right: '35px', zIndex: 6000 }}>
+             <a href={`tel:${mission.phone}`} className={styles.navCallBtn}>📞</a>
           </div>
-          {mission.phone && (
-            <a href={`tel:${mission.phone}`} className={styles.navCallBtn}>📞</a>
-          )}
-        </div>
+        )}
 
         {/* Bottom ETA bar */}
         <div className={styles.etaBar}>
@@ -65,7 +56,7 @@ export const TacticalNav: React.FC<TacticalNavProps> = ({
         <div style={{ padding: '0 16px 20px 16px', marginTop: '-4px', background: 'rgba(13, 17, 28, 0.98)' }}>
           <button 
             onClick={() => onUpdateStatus('on_site')} 
-            className="combat-btn-xxl"
+            className={styles.combatBtnXxl}
             style={{ backgroundColor: '#f59e0b', color: '#000' }}
           >
             📍 JE SUIS SUR PLACE
@@ -85,7 +76,7 @@ export const TacticalNav: React.FC<TacticalNavProps> = ({
         
         <button 
           onClick={onShowReport} 
-          className="combat-btn-xxl"
+          className={styles.combatBtnXxl}
           style={{ backgroundColor: '#10b981', color: '#000' }}
         >
           ✅ CLÔTURER LA MISSION
