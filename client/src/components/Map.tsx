@@ -370,17 +370,22 @@ export default function Map({
   }, [route]);
 
   const routingWaypoints = useMemo(() => {
-    if (!selectedAlert || !center) return [];
-    return [
-      L.latLng(center[0], center[1]),
-      L.latLng(selectedAlert.lat, selectedAlert.lng)
-    ];
-  }, [center[0], center[1], selectedAlert?.id]);
+    if (!selectedAlert || !center || selectedAlert.lat === undefined || selectedAlert.lng === undefined) return [];
+    try {
+      return [
+        L.latLng(center[0], center[1]),
+        L.latLng(selectedAlert.lat, selectedAlert.lng)
+      ];
+    } catch (e) { 
+      console.error('[Map] Waypoints creation failed', e);
+      return []; 
+    }
+  }, [center[0], center[1], selectedAlert?.id, selectedAlert?.lat]);
 
   return (
     <div className={styles.mapWrapper}>
       {/* Guidance Banner XXL */}
-      {navigationActive && isLiveUnitMode && guidance && (
+      {(navigationActive || (isLiveUnitMode && selectedAlert)) && guidance && (
         <div className={styles.guidanceBanner}>
           <div className={styles.guidanceIcon}>⇅</div>
           <div className={styles.guidanceText}>{guidance.toUpperCase()}</div>
@@ -421,7 +426,7 @@ export default function Map({
           speed={speed || 0}
         />
 
-        {isLiveUnitMode && navigationActive && selectedAlert && lrmReady && (
+        {isLiveUnitMode && selectedAlert && lrmReady && (
           <RoutingMachine 
             waypoints={routingWaypoints} 
             active={lrmReady}

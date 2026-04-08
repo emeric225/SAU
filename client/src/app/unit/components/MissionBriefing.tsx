@@ -64,7 +64,7 @@ export const MissionBriefing: React.FC<MissionBriefingProps> = ({
       <div className={styles.popupActions} style={{ flexDirection: 'column', gap: '12px' }}>
         <button 
           onClick={onAccept} 
-          className="combat-btn-xxl"
+          className={styles.combatBtnXxl}
           style={{ backgroundColor: '#3b82f6', color: '#fff' }}
         >
           🚀 DÉMARRER L'INTERVENTION
