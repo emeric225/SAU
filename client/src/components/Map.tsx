@@ -124,7 +124,8 @@ function lerpAngle(a: number, b: number, t: number): number {
 
 function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.LatLng[], onRouteUpdate: (data: any) => void, active: boolean }) {
   const map = useMap();
-  const routingControlRef = useRef<any>(null);
+  const callbackRef = useRef(onRouteUpdate);
+  useEffect(() => { callbackRef.current = onRouteUpdate; }, [onRouteUpdate]);
 
   useEffect(() => {
     if (!map || !active || !waypoints || waypoints.length < 2) return;
@@ -138,9 +139,11 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
       return;
     }
 
-    // Initialize control if not exists
-    if (!routingControlRef.current) {
-      const routingControl = (L as any).Routing.control({
+    // Reuse existing control if possible
+    let ctrl = routingControlRef.current;
+
+    if (!ctrl) {
+      ctrl = (L as any).Routing.control({
         waypoints: waypoints,
         lineOptions: {
           styles: [
@@ -161,19 +164,16 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
         })
       });
       
-      routingControl.addTo(map);
-      routingControlRef.current = routingControl;
+      ctrl.addTo(map);
+      routingControlRef.current = ctrl;
 
-      routingControl.on('routesfound', function(e: any) {
+      ctrl.on('routesfound', function(e: any) {
         if (e.routes && e.routes.length > 0) {
-          onRouteUpdate(e.routes[0]);
+          callbackRef.current(e.routes[0]);
         }
       });
     } else {
-      // Update waypoints if changed
-      const ctrl = routingControlRef.current;
       const current = ctrl.getWaypoints();
-      
       const startDist = current[0]?.latLng ? distanceMeters([current[0].latLng.lat, current[0].latLng.lng], [waypoints[0].lat, waypoints[0].lng]) : 999;
       const destDist = current[1]?.latLng ? distanceMeters([current[1].latLng.lat, current[1].latLng.lng], [waypoints[1].lat, waypoints[1].lng]) : 999;
 
@@ -181,7 +181,11 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
         ctrl.setWaypoints(waypoints);
       }
     }
-  }, [map, waypoints, onRouteUpdate, active]);
+
+    return () => {
+      // Logic for cleanup handled by parent if needed, but here we can at least remove it if active prop changes
+    };
+  }, [map, waypoints, active]); // onRouteUpdate removed from deps as it's in a ref
 
   return null;
 }
