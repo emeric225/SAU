@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, GeoJSON, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet-routing-machine';
+// LRM CSS are imported here
 import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import styles from '../app/unit/unit.module.css';
 
@@ -122,12 +122,18 @@ function lerpAngle(a: number, b: number, t: number): number {
 
 // --- Components ---
 
-function RoutingMachine({ waypoints, onRouteUpdate }: { waypoints: L.LatLng[], onRouteUpdate: (data: any) => void }) {
+function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.LatLng[], onRouteUpdate: (data: any) => void, active: boolean }) {
   const map = useMap();
   const routingControlRef = useRef<any>(null);
 
   useEffect(() => {
-    if (!map || waypoints.length < 2) return;
+    if (!map || waypoints.length < 2 || !active) return;
+
+    // Wait until L.Routing is attached to L
+    if (!(L as any).Routing || !(L as any).Routing.control) {
+      console.warn('[RoutingMachine] L.Routing not ready yet');
+      return;
+    }
 
     if (!routingControlRef.current) {
       routingControlRef.current = (L as any).Routing.control({
@@ -254,6 +260,18 @@ export default function Map({
   speed = 0,
   heading = 0
 }: MapProps) {
+  const [lrmReady, setLrmReady] = useState(false);
+
+  // Safe import for Leaflet Routing Machine
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // @ts-ignore
+      import('leaflet-routing-machine').then(() => {
+        setLrmReady(true);
+      });
+    }
+  }, []);
+
   const [vehiclePos, setVehiclePos] = useState<[number, number]>(center);
   const [rotation, setRotation] = useState(0);
   const [smoothRotation, setSmoothRotation] = useState(0);
@@ -405,9 +423,10 @@ export default function Map({
           speed={speed || 0}
         />
 
-        {isLiveUnitMode && navigationActive && selectedAlert && (
+        {isLiveUnitMode && navigationActive && selectedAlert && lrmReady && (
           <RoutingMachine 
             waypoints={routingWaypoints} 
+            active={lrmReady}
             onRouteUpdate={(r) => {
               setRoute(r);
               onRouteDataReady?.({ distanceKm: r.summary.totalDistance / 1000, durationMin: r.summary.totalTime / 60 });
