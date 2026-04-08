@@ -40,14 +40,6 @@ export default function Dashboard() {
   const [mounted, setMounted] = useState(false);
   const userRef = useRef<any>(null);
 
-  // --- Navigation / Engagement Opérationnel ---
-  const [navigationActive, setNavigationActive] = useState(false);
-  const [missionAlert, setMissionAlert] = useState<any>(null);
-  const [etaData, setEtaData] = useState<{ distanceKm: number; durationMin: number; segmentCount: number } | null>(null);
-  const [segmentProgress, setSegmentProgress] = useState(0);
-  const [etaWarning, setEtaWarning] = useState(false);
-  const prevRemainingRef = useRef<number | null>(null);
-
   // --- HQ Features State ---
   const [currentView, setCurrentView] = useState('map'); // map, dispatch, stations, analytics
   const [isCrisisMode, setIsCrisisMode] = useState(false);
@@ -470,54 +462,7 @@ export default function Dashboard() {
     window.location.href = '/login';
   };
 
-  // --- Mission Functions ---
-  const startMission = useCallback((alert: any) => {
-    setMissionAlert(alert);
-    setSelectedAlert(alert);
-    setNavigationActive(true);
-    setSegmentProgress(0);
-    setEtaWarning(false);
-    prevRemainingRef.current = null;
-    // Mark station as busy
-    if (user?.id) {
-      fetch(`/api/stations/status/${user.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'busy' })
-      });
-      setStationStatus('busy');
-    }
-    // Notify HQ via socket
-    socketRef.current?.emit('unit_transit', {
-      alertId: alert.id,
-      stationId: user?.id,
-      stationName: user?.name,
-    });
-  }, [user]);
-
-  const cancelMission = useCallback(() => {
-    setNavigationActive(false);
-    setMissionAlert(null);
-    setEtaData(null);
-    setSegmentProgress(0);
-  }, []);
-
-  // Compute remaining ETA (recalculated on each segment advance)
-  const remainingMin = etaData
-    ? etaData.durationMin * Math.max(0, 1 - segmentProgress / Math.max(etaData.segmentCount - 1, 1))
-    : null;
-
-  const progressPct = etaData
-    ? Math.min(100, (segmentProgress / Math.max(etaData.segmentCount - 1, 1)) * 100)
-    : 0;
-
-  // ETA warning: if remaining suddenly increases (reroute / traffic)
-  useEffect(() => {
-    if (remainingMin !== null && prevRemainingRef.current !== null) {
-      setEtaWarning(remainingMin > prevRemainingRef.current + 0.1);
-    }
-    if (remainingMin !== null) prevRemainingRef.current = remainingMin;
-  }, [remainingMin]);
+  // --- Mission Functions (Removed, handled by Units) ---
 
   const filteredAlerts = alerts.filter(a => {
     // Search filter
@@ -633,11 +578,9 @@ return (
         <Map
           stations={stations}
           alerts={user?.id === 'admin' ? alerts : alerts.filter(a => a.station_id === user?.id)}
-          units={user?.id === 'admin' ? units : units.filter(u => u.station_id === user?.id && (u.status === 'en_route' || u.status === 'on_site'))}
+          units={user?.id === 'admin' ? units : units.filter(u => u.station_id === user?.id)}
           selectedAlert={selectedAlert}
-          navigationActive={navigationActive}
-          onRouteDataReady={(data) => { setEtaData(data); setSegmentProgress(0); }}
-          onVehicleProgress={(seg) => setSegmentProgress(seg)}
+          navigationActive={false}
         />
         
         {/* HQ SIDE NAV */}
@@ -828,15 +771,7 @@ return (
                               <div style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '6px' }}>
                                 ✓ Unité en intervention
                               </div>
-                              {user?.id === 'admin' && (
-                                <button 
-                                  className={styles.btnActionSuccess} 
-                                  style={{ padding: '12px', fontSize: '12px' }}
-                                  onClick={(e) => { e.stopPropagation(); updateAlertStatus(a.id, 'resolved'); }}
-                                >
-                                  ✅ CLÔTURER & RAPPORT
-                                </button>
-                               )}
+                              {/* Le QG et Caserne ne peuvent plus clôturer manuellement la mission ici. Les unités sur le terrain gèrent la clôture. */}
                             </div>
                           )}
                         </div>
@@ -934,53 +869,7 @@ return (
           </div>
         )}
 
-        {/* Global Overlays (KPIs) */}
-        {!navigationActive && (
-          <div className={styles.kpiPanel}>
-            <div className={styles.kpiItem}><span>{kpis.activeRescues}</span><label>INTERVENTIONS</label></div>
-            <div className={styles.kpiDivider}></div>
-            <div className={styles.kpiItem}><span>{kpis.totalToday}</span><label>SIGNALEMENTS</label></div>
-          </div>
-        )}
-
-        {/* ETA WIDGET — Mode Engagement Opérationnel */}
-        {navigationActive && etaData && (
-          <div className={styles.etaWidget}>
-            <div className={styles.etaHeader}>
-              <span className={styles.etaSiren}>🚨</span>
-              <span>EN TRANSIT</span>
-              <span className={styles.etaSiren}>🚨</span>
-            </div>
-            <div className={styles.etaTimeRow}>
-              <div className={`${styles.etaTime} ${etaWarning ? styles.etaWarning : ''}`}>
-                {remainingMin !== null ? Math.ceil(remainingMin) : '--'}
-                <span className={styles.etaUnit}>MIN</span>
-              </div>
-              <div className={styles.etaDistCol}>
-                <span className={styles.etaDistVal}>{etaData.distanceKm.toFixed(1)}</span>
-                <span className={styles.etaDistLabel}>km</span>
-              </div>
-            </div>
-            {etaWarning && (
-              <div className={styles.etaWarningMsg}>⚠️ RALENTISSEMENT DÉTECTÉ</div>
-            )}
-            <div className={styles.etaBarTrack}>
-              <div
-                className={styles.etaBarFill}
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <div className={styles.etaFooter}>
-              <span className={styles.etaProgressTxt}>{Math.round(progressPct)}% parcouru</span>
-              <button className={styles.etaCancelBtn} onClick={cancelMission}>✕ Annuler</button>
-            </div>
-            {missionAlert && (
-              <div className={styles.etaDestination}>
-                📍 {missionAlert.type?.toUpperCase()} — {missionAlert.name || 'Anonyme'}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Les ETA Widgets étaient liés à des variables qui ont été purgées : La caserne/QG ne navigue pas elle-même ! */}
 
         {/* NEW ALERT POPUP (Emergency Modal) */}
         {newAlertPopup && (
@@ -1042,8 +931,6 @@ return (
                     timestamp: new Date()
                   };
                   updateAlertStatus(reportingAlert.id, 'resolved', reportData);
-                  // Reset navigation state if it was the currently tracked mission
-                  if (missionAlert?.id === reportingAlert.id) cancelMission();
                 }}
               >
                 <div>
