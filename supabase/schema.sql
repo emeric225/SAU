@@ -53,9 +53,21 @@ CREATE TABLE IF NOT EXISTS messages (
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Secrets Table (Wait, we can use a simpler approach or just store hash in stations/units)
--- For now, let's just make sure stations are populated with passwords if needed or use a simple env-based secret.
--- If the user wants a real auth table:
+-- Unit Positions Table (High frequency tracking)
+CREATE TABLE IF NOT EXISTS positions_unites (
+  id BIGSERIAL PRIMARY KEY,
+  unit_id TEXT NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  lat FLOAT NOT NULL,
+  lng FLOAT NOT NULL,
+  heading FLOAT DEFAULT 0,
+  speed FLOAT DEFAULT 0,
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Index for faster queries on recent positions
+CREATE INDEX IF NOT EXISTS idx_positions_unites_unit_timestamp ON positions_unites(unit_id, timestamp DESC);
+
+-- Secrets Table
 CREATE TABLE IF NOT EXISTS auth_secrets (
   id TEXT PRIMARY KEY REFERENCES stations(id),
   password_hash TEXT NOT NULL

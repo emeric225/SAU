@@ -385,16 +385,35 @@ io.on('connection', (socket) => {
   });
 
   socket.on('update_unit_position', async (data) => {
-    // data: { unitId, lat, lng }
+    // data: { unitId, lat, lng, heading, speed, timestamp }
+    if (!data.unitId) return;
     gpsActiveUnits.add(data.unitId);
-    // If we get a real GPS update, stop any running simulation for this unit
+    
+    // Stop simulation for this unit
     if (simulationIntervals.has(data.unitId)) {
       clearInterval(simulationIntervals.get(data.unitId));
       simulationIntervals.delete(data.unitId);
       console.log(`[SAU] 🛑 Simulation arrêtée pour l'unité ${data.unitId} (GPS réel détecté)`);
     }
 
-    const { data: unit } = await supabase.from('units').update({ lat: data.lat, lng: data.lng }).eq('id', data.unitId).select().single();
+    // 1. Update Unit Table (Last known position)
+    const { data: unit } = await supabase
+      .from('units')
+      .update({ lat: data.lat, lng: data.lng })
+      .eq('id', data.unitId)
+      .select()
+      .single();
+
+    // 2. High Frequency Tracking (positions_unites)
+    await supabase.from('positions_unites').insert([{
+      unit_id: data.unitId,
+      lat: data.lat,
+      lng: data.lng,
+      heading: data.heading || 0,
+      speed: data.speed || 0,
+      timestamp: data.timestamp || new Date().toISOString()
+    }]);
+
     if (unit) {
       io.emit('unit_moved', unit); // inform map
     }
@@ -457,20 +476,27 @@ io.on('connection', (socket) => {
   });
 
   socket.on('unit_status_update', async (data) => {
-    // data: { unitId, status, alertId } -> status: 'en_route', 'on_site', 'available'
+    // data: { unitId, status, alertId, transit_at, on_site_at }
     const updateData = { status: data.status };
     if (data.status === 'available') updateData.current_alert_id = null;
     
     const { data: unit } = await supabase.from('units').update(updateData).eq('id', data.unitId).select().single();
     
     if (unit) {
-      io.emit('unit_updated', unit);
-      if (data.status === 'en_route' && data.alertId) {
-        const { data: ale } = await supabase.from('alerts').update({ status: 'dispatched' }).eq('id', data.alertId).select().single();
-        if (ale) io.emit('alert_updated', ale);
-      } else if (data.status === 'on_site' && data.alertId) {
-        const { data: ale } = await supabase.from('alerts').update({ status: 'on_site' }).eq('id', data.alertId).select().single();
-        if (ale) io.emit('alert_updated', ale);
+      if (data.alertId) {
+        const alertUpdate = {};
+        if (data.status === 'en_route') {
+            alertUpdate.status = 'dispatched';
+            alertUpdate.transit_at = data.transit_at || new Date().toISOString();
+        } else if (data.status === 'on_site') {
+            alertUpdate.status = 'on_site';
+            alertUpdate.on_site_at = data.on_site_at || new Date().toISOString();
+        }
+        
+        if (Object.keys(alertUpdate).length > 0) {
+            const { data: ale } = await supabase.from('alerts').update(alertUpdate).eq('id', data.alertId).select().single();
+            if (ale) io.emit('alert_updated', ale);
+        }
       }
       io.emit('unit_updated', unit);
     }

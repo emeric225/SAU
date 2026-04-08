@@ -61,12 +61,16 @@ export const MissionBriefing: React.FC<MissionBriefingProps> = ({
         )}
       </div>
 
-      <div className={styles.popupActions}>
-        <button onClick={onAccept} className={styles.btnAccept}>
-          ✅ ACCEPTER LA MISSION
+      <div className={styles.popupActions} style={{ flexDirection: 'column', gap: '12px' }}>
+        <button 
+          onClick={onAccept} 
+          className="combat-btn-xxl"
+          style={{ backgroundColor: '#3b82f6', color: '#fff' }}
+        >
+          🚀 DÉMARRER L'INTERVENTION
         </button>
         <button onClick={onRefuse} className={styles.btnRefuse}>
-          REFUSER
+          IGNORER (DÉCLINER)
         </button>
       </div>
     </div>

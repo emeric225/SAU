@@ -63,23 +63,35 @@ export default function UnitInterface() {
     }
   }, []);
 
-  const playSiren = useCallback(() => {
+  const playSiren = useCallback((type: 'mission' | 'approach' = 'mission') => {
     if (!audioCtxRef.current) return;
     try {
       const audioCtx = audioCtxRef.current;
       if (audioCtx.state === 'suspended') audioCtx.resume();
+      
+      const duration = type === 'mission' ? 8 : 3; // Long for mission, short for approach
+      const frequency = type === 'mission' ? [600, 900] : [800, 1200];
+      
       let count = 0;
       const interval = setInterval(() => {
         const t = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(count % 2 === 0 ? 800 : 1000, t);
-        gain.gain.setValueAtTime(0.3, t);
+        
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(count % 2 === 0 ? frequency[0] : frequency[1], t);
+        
+        gain.gain.setValueAtTime(0.2, t);
         gain.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.start(t); osc.stop(t + 0.5);
-        count++; if (count >= 20) clearInterval(interval);
+        
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        
+        osc.start(t);
+        osc.stop(t + 0.5);
+        
+        count++;
+        if (count >= duration * 2) clearInterval(interval);
       }, 500);
     } catch (e) { console.error('Audio error', e); }
   }, []);
@@ -157,7 +169,7 @@ export default function UnitInterface() {
     s.on('mission_received', (alert: any) => {
       setMission(alert);
       localStorage.setItem('sau_unit_mission', JSON.stringify(alert));
-      playSiren();
+      playSiren('mission');
       showToast('🚨 MISSION REÇUE !', 'error', 10000);
     });
     s.on('unit_updated', (updated: any) => {
@@ -209,25 +221,72 @@ export default function UnitInterface() {
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        const heading = pos.coords.heading || 0;
+        const speed = pos.coords.speed || 0;
+
         if (!gpsLockedRef.current) {
           gpsLockedRef.current = true;
           setGpsLocked(true);
           showToast('📍 GPS VERROUILLÉ', 'success', 2000);
         }
         setGpsPos([lat, lng]);
-        socket.emit('update_unit_position', { unitId: unit.id, lat, lng });
+
+        // Logic check: approach alert
+        if (mission && unit?.status === 'en_route') {
+           const dist = distanceMeters([lat, lng], [mission.lat, mission.lng]);
+           if (dist < 150 && !mission.approachAlertTriggered) {
+              playSiren('approach');
+              showToast('🏁 DESTINATION PROCHE (< 150m)', 'warning');
+              mission.approachAlertTriggered = true;
+           }
+        }
+        
+        // Push reliable position to backend
+        if (socket?.connected && unit?.id) {
+            socket.emit('update_unit_position', { 
+                unitId: unit.id, 
+                lat, 
+                lng, 
+                heading, 
+                speed,
+                timestamp: new Date().toISOString()
+            });
+        }
       },
-      (err) => { if (!gpsLockedRef.current) setGpsPos(DEFAULT_CENTER); },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+      (err) => { 
+        if (!gpsLockedRef.current) {
+          setGpsPos(DEFAULT_CENTER);
+          showToast('❌ ERREUR GPS', 'error');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 1000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [unit?.id, socket, showToast]);
+  }, [unit?.id, socket, showToast, mission, playSiren]);
+
+  // Helper inside component or imported
+  function distanceMeters(p1: [number, number], p2: [number, number]): number {
+    const R = 6371000;
+    const dLat = (p2[0] - p1[0]) * Math.PI / 180;
+    const dLon = (p2[1] - p1[1]) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(p1[0] * Math.PI / 180) * Math.cos(p2[0] * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
 
   // ─── Core Handlers ───────────────────────────────────────────────────────────
   const updateStatus = (status: string) => {
     if (socket && unit) {
-      socket.emit('unit_status_update', { unitId: unit.id, status, alertId: mission?.id });
+      const payload: any = { unitId: unit.id, status, alertId: mission?.id };
+      
+      // Strict timestamps for state changes
+      if (status === 'en_route') payload.transit_at = new Date().toISOString();
+      if (status === 'on_site') payload.on_site_at = new Date().toISOString();
+      
+      socket.emit('unit_status_update', payload);
       setUnit({ ...unit, status });
+      
       if (status === 'available') {
         setMission(null);
         localStorage.removeItem('sau_unit_mission');
@@ -249,22 +308,26 @@ export default function UnitInterface() {
     
     try {
       showToast('⏳ Transmission en cours...', 'info');
+      // Update mission status to resolved in alerts table
       const res = await fetch(`/api/alerts/${mission.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'resolved', report: reportData }),
+        body: JSON.stringify({ 
+          status: 'resolved', 
+          report: reportData,
+          resolved_at: new Date().toISOString()
+        }),
       });
+      
       if (res.ok) { 
         updateStatus('available'); 
         setShowReport(false); 
       } else {
         const errData = await res.json().catch(() => ({}));
         showToast(`❌ ERREUR (Serveur): ${errData.error || 'Erreur inconnue'}`, 'error');
-        alert(`Erreur Serveur: ${JSON.stringify(errData)}`);
       }
     } catch (err: any) { 
       showToast('❌ ERREUR TRANSMISSION BILAN (Réseau)', 'error'); 
-      alert(`Erreur Réseau/Exception: ${err?.message || JSON.stringify(err)}`);
     }
   };
 

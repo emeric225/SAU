@@ -59,8 +59,16 @@ export const TacticalNav: React.FC<TacticalNavProps> = ({
             <div className={styles.etaValue}>{getFormattedArrival()}</div>
             <div className={styles.etaLabel}>ARRIVÉE</div>
           </div>
-          <button onClick={() => onUpdateStatus('on_site')} className={styles.etaArriveBtn}>
-            📍 ARRIVÉ
+        </div>
+        
+        {/* Tactical Interaction Area (XXL) */}
+        <div style={{ padding: '0 16px 20px 16px', marginTop: '-4px', background: 'rgba(13, 17, 28, 0.98)' }}>
+          <button 
+            onClick={() => onUpdateStatus('on_site')} 
+            className="combat-btn-xxl"
+            style={{ backgroundColor: '#f59e0b', color: '#000' }}
+          >
+            📍 JE SUIS SUR PLACE
           </button>
         </div>
       </>
@@ -75,8 +83,12 @@ export const TacticalNav: React.FC<TacticalNavProps> = ({
           <strong>MISSION EN COURS — SUR PLACE</strong>
         </div>
         
-        <button onClick={onShowReport} className={`${styles.btnAction} ${styles.btnResolved}`}>
-          ✅ VALIDER LA MISSION (RAPPORT)
+        <button 
+          onClick={onShowReport} 
+          className="combat-btn-xxl"
+          style={{ backgroundColor: '#10b981', color: '#000' }}
+        >
+          ✅ CLÔTURER LA MISSION
         </button>
 
         <div className={styles.forceStatusRow}>
