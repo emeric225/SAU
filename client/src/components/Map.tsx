@@ -207,57 +207,25 @@ function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter }: { 
   });
 
   useEffect(() => {
-    if (navigationActive && autoCenter) {
-      map.setView(center, 19, { animate: true, duration: 0.5 });
-    } else if (!navigationActive && autoCenter) {
-      map.setView(center, 14, { animate: true, duration: 0.8 });
+    if (!autoCenter || !map) return;
+    
+    // Au lieu de setView qui fige la carte, on sépare le Zoom et le PanTo pour plus de stabilité
+    const targetZoom = navigationActive ? 19 : 14;
+    
+    // Si le zoom est déjà bon, on fait juste un panTo très fluide
+    if (map.getZoom() !== targetZoom) {
+      map.setZoom(targetZoom, { animate: true });
     }
+    
+    map.panTo(center, { animate: true, duration: 0.8, easeLinearity: 0.25 });
   }, [center, map, navigationActive, autoCenter]);
   return null;
 }
 
-// --- MovingUnit: Smoothly animates unit between GPS points ---
+// --- MovingUnit: Uses CSS transitions for smooth GPS updates instead of heavy React state 60fps loops ---
 function MovingUnit({ id, type, status, name, lat, lng }: { id: string; type: string; status: string; name: string; lat: number; lng: number }) {
-  const [pos, setPos] = useState<[number, number]>([lat, lng]);
-  const lastPosRef = useRef<[number, number]>([lat, lng]);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const startPos = lastPosRef.current;
-    const targetPos: [number, number] = [lat, lng];
-    
-    if (startPos[0] === targetPos[0] && startPos[1] === targetPos[1]) return;
-
-    let startTime: number | null = null;
-    const DURATION = 1800; // Interpolate over 1.8s for smooth 2s updates
-
-    const animate = (time: number) => {
-      if (!startTime) startTime = time;
-      const elapsed = time - startTime;
-      const t = Math.min(elapsed / DURATION, 1);
-
-      const currentLat = lerp(startPos[0], targetPos[0], t);
-      const currentLng = lerp(startPos[1], targetPos[1], t);
-      
-      setPos([currentLat, currentLng]);
-
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(animate);
-      } else {
-        lastPosRef.current = targetPos;
-      }
-    };
-
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [lat, lng]);
-
   return (
-    <Marker position={pos} icon={UnitMapIcon(type, status)}>
+    <Marker position={[lat, lng]} icon={UnitMapIcon(type, status)}>
       <Popup>
         <strong>{name}</strong><br />
         Statut: {status.toUpperCase()}
@@ -515,34 +483,10 @@ export default function Map({
         setRotation(bear);
       }
 
-      // 3. FLUID INTERPOLATION (60FPS)
-      let startT: number | null = null;
-      const DURATION = 1000; // Standardize to 1 sec between GPS updates
-      const ptStart = vehiclePos || p1; // Start from where the visual icon actually is
+      // 3. DIRECT UPDATE (Clean CSS transition handles smoothing)
+      setVehiclePos(targetPos);
+      lastCenterRef.current = targetPos;
 
-      const interp = (t: number) => {
-        if (!startT) startT = t;
-        const elapsed = t - startT;
-        const progress = Math.min(elapsed / DURATION, 1);
-        
-        const ilat = lerp(ptStart[0], targetPos[0], progress);
-        const ilng = lerp(ptStart[1], targetPos[1], progress);
-        
-        setVehiclePos([ilat, ilng]);
-        
-        if (progress < 1) {
-          liveInterpRef.current = requestAnimationFrame(interp);
-        } else {
-          lastCenterRef.current = targetPos;
-        }
-      };
-      
-      if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
-      liveInterpRef.current = requestAnimationFrame(interp);
-
-      return () => {
-        if (liveInterpRef.current) cancelAnimationFrame(liveInterpRef.current);
-      };
     } else if (isLiveUnitMode && !navigationActive) {
       // Idle — place vehicle at GPS, no forced rotation
       setVehiclePos(center);
@@ -550,7 +494,7 @@ export default function Map({
       lastCenterRef.current = center;
       segmentRef.current = 0;
     }
-  }, [center, isLiveUnitMode, navigationActive, findNearestSegment, onVehicleProgress, vehiclePos, getRoute]);
+  }, [center, isLiveUnitMode, navigationActive, findNearestSegment, onVehicleProgress, getRoute, vehiclePos]);
 
   // Smooth rotation with exponential filter to avoid sudden arrow jumps
   useEffect(() => {
@@ -698,6 +642,10 @@ export default function Map({
         @keyframes siren-flash {
           from { opacity: 0.3; }
           to { opacity: 1; box-shadow: 0 0 16px currentColor; }
+        }
+        .leaflet-marker-icon.custom-vehicle-icon,
+        .leaflet-marker-icon.custom-unit-icon {
+          transition: transform 1s linear !important;
         }
         .custom-zone-tooltip {
           background: rgba(0, 0, 0, 0.4);
