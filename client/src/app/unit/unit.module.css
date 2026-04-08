@@ -59,6 +59,19 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
+.loginTitle {
+  font-size: 28px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  letter-spacing: -1px;
+}
+
+.loginSub {
+  font-size: 14px;
+  color: var(--tk-text-dim);
+  margin-bottom: 24px;
+}
+
 .logo {
   font-size: 64px;
   font-weight: 900;
@@ -123,6 +136,22 @@
 }
 
 /* ── Tactical Header ────────────────────────────────────────────────────────── */
+.audioBanner {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 44px;
+  background: var(--tk-accent-orange);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 13px;
+  cursor: pointer;
+  z-index: 1001;
+  letter-spacing: 1px;
+}
+
 .header {
   display: flex;
   justify-content: space-between;
@@ -132,6 +161,17 @@
   backdrop-filter: var(--tk-glass-blur);
   border-bottom: 1px solid var(--tk-border);
   z-index: 1000;
+}
+
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .unitName {
@@ -153,6 +193,27 @@
   border-radius: 99px;
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+.offlineTag {
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 900;
+  border-radius: 99px;
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--tk-accent-red);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+.syncingTag {
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 900;
+  border-radius: 99px;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--tk-accent-blue);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  animation: tk-blink 1s infinite;
 }
 
 .badgeAvailable { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
