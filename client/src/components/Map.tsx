@@ -241,20 +241,48 @@ export default function Map({
 
   // Update target + bearing on new GPS
   useEffect(()=>{
-    const gps: [number,number] = center; // use raw GPS
-
-    // Bearing: GPS heading first, else calculate from trajectory
+    const gps: [number,number] = center;
     const prev = prevGpsRef.current;
     const d = dist(prev, gps);
-    if(heading > 0 && speed > 0.5){
-      rawBearRef.current = heading;
-    } else if(d > 3){
-      rawBearRef.current = bearing(prev, gps);
+
+    let newBearing: number | null = null;
+
+    // Priority 1: Real GPS heading sensor (most accurate)
+    if(heading !== null && heading > 0 && speed > 0.5){
+      newBearing = heading;
+    }
+    // Priority 2: Calculate from movement trajectory
+    else if(d > 3){
+      newBearing = bearing(prev, gps);
+    }
+    // Priority 3: Use next route segment geometry (works even stationary)
+    else if(route?.coordinates?.length > 1){
+      // Find the closest segment to current position, then use direction of next segment
+      let minD = Infinity;
+      let bestIdx = 0;
+      const coords = route.coordinates;
+      for(let i = 0; i < coords.length - 1; i++){
+        const mid: [number,number] = [
+          (coords[i].lat + coords[i+1].lat) / 2,
+          (coords[i].lng + coords[i+1].lng) / 2,
+        ];
+        const d2 = dist(gps, mid);
+        if(d2 < minD){ minD = d2; bestIdx = i; }
+      }
+      // Use the segment ahead
+      const ahead = Math.min(bestIdx + 1, coords.length - 2);
+      const p1: [number,number] = [coords[ahead].lat, coords[ahead].lng];
+      const p2: [number,number] = [coords[ahead+1].lat, coords[ahead+1].lng];
+      newBearing = bearing(p1, p2);
+    }
+
+    if(newBearing !== null){
+      rawBearRef.current = newBearing;
     }
 
     prevGpsRef.current = gps;
-    targetRef.current = gps; // map pans toward real GPS
-  },[center, heading, speed]);
+    targetRef.current = gps;
+  },[center, heading, speed, route]);
 
   // Single RAF loop: position LERP + bearing LERP — direct DOM, no setState
   useEffect(()=>{
