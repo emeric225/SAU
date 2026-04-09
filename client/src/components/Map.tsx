@@ -127,34 +127,46 @@ export default function TacticalMapEngine({
   }, []);
 
   // ─── Calcul de l'itinéraire OSRM ─────────────────────────────────────────
-  // Ce useEffect ne se déclenche que quand la mission change (pas à chaque GPS)
+  // Se déclenche au changement de mission ou lors de l'activation de la navigation
   useEffect(() => {
-    if (!navigationActive || !selectedAlert?.lat || !selectedAlert?.lng) {
+    if (!navigationActive || !selectedAlert) {
       setRouteGeoJSON(null);
       setRouteSteps([]);
       setGuidanceText('');
       return;
     }
-    const originLng = centerRef.current[1];
-    const originLat = centerRef.current[0];
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${selectedAlert.lng},${selectedAlert.lat}?overview=full&geometries=geojson&steps=true&language=fr`;
+    // Support de lat/lng ET latitude/longitude ET location.lat/location.lng
+    const destLat = selectedAlert.lat ?? selectedAlert.latitude ?? selectedAlert.location?.lat;
+    const destLng = selectedAlert.lng ?? selectedAlert.longitude ?? selectedAlert.location?.lng;
 
-    fetch(osrmUrl)
+    if (!destLat || !destLng) {
+      console.error('[Map] Alerte sans coordonnées:', JSON.stringify(selectedAlert));
+      return;
+    }
+
+    const originLat = centerRef.current[0];
+    const originLng = centerRef.current[1];
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&language=fr`;
+    console.log('[Map] Route vers:', destLat, destLng);
+
+    const abortCtrl = new AbortController();
+    fetch(osrmUrl, { signal: abortCtrl.signal })
       .then(res => res.json())
       .then(data => {
-        if (data.code === 'Ok' && data.routes.length > 0) {
+        if (data.code === 'Ok' && data.routes?.length > 0) {
           const route = data.routes[0];
           setRouteGeoJSON(route.geometry);
           setRouteSteps(route.legs?.[0]?.steps || []);
-          onRouteDataReady?.({
-            distanceKm: route.distance / 1000,
-            durationMin: route.duration / 60,
-          });
+          onRouteDataReady?.({ distanceKm: route.distance / 1000, durationMin: route.duration / 60 });
+        } else {
+          console.error('[Map] OSRM error:', data.code);
         }
       })
-      .catch(err => console.error('[OSRM] route fetch error', err));
+      .catch(err => { if (err.name !== 'AbortError') console.error('[Map] Fetch route failed:', err); });
+
+    return () => abortCtrl.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAlert?.id, navigationActive]);
+  }, [selectedAlert?.id, selectedAlert?.lat, selectedAlert?.lng, navigationActive]);
 
   // ─── Synchronisation carte / marqueurs ────────────────────────────────────
   useEffect(() => {

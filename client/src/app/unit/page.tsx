@@ -118,9 +118,11 @@ export default function UnitTacticalPage() {
   }, [playTacticalNavBeep]);
 
   // ─── Status ───────────────────────────────────────────────────────────────────
-  const updateTacticalStatus = useCallback((status: string) => {
+  const updateTacticalStatus = useCallback((status: string, explicitAlertId?: string) => {
     if (!tacticalSocketRef.current || !tacticalUnit) return;
-    const payload: any = { unitId: tacticalUnit.id, status, alertId: activeMission?.id };
+    // explicitAlertId est nécessaire quand l'activeMission vient d'être settée (React state pas encore appliqué)
+    const alertId = explicitAlertId ?? activeMission?.id;
+    const payload: any = { unitId: tacticalUnit.id, status, alertId };
     if (status === 'en_route') payload.transit_at = new Date().toISOString();
     if (status === 'on_site') payload.on_site_at = new Date().toISOString();
     tacticalSocketRef.current.emit('unit_status_update', payload);
@@ -506,10 +508,13 @@ export default function UnitTacticalPage() {
           mission={pendingAlert}
           routeData={tacticalRouteInfo}
           onAccept={() => {
-            setActiveMission(pendingAlert);
-            localStorage.setItem('sau_unit_mission', JSON.stringify(pendingAlert));
+            // On capture l'alerte AVANT de la supprimer du state pending
+            const missionToStart = pendingAlert;
+            setActiveMission(missionToStart);
+            localStorage.setItem('sau_unit_mission', JSON.stringify(missionToStart));
             setPendingAlert(null);
-            updateTacticalStatus('en_route');
+            // Passage EXPLICITE de l'alertId pour éviter la stale closure sur activeMission
+            updateTacticalStatus('en_route', missionToStart?.id);
             playTacticalSiren('approach');
             showTacticalToast('🚀 MISSION ACCEPTÉE — EN ROUTE !', 'success');
           }}
