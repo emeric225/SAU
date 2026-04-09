@@ -6,9 +6,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import styles from '../app/unit/unit.module.css';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const SR = 'route-source';
-const LR = 'route-line';
-const LC = 'route-casing';
+const ROUTE_SOURCE_ID = 'route-source-tactical';
+const ROUTE_LINE_LAYER = 'route-line-main';
+const ROUTE_CASING_LAYER = 'route-line-casing';
 
 export interface MapProps {
     center?: [number, number];
@@ -21,168 +21,198 @@ export interface MapProps {
     selfUnitId?: string;
     speed?: number;
     heading?: number;
-    onRouteDataReady?: (d: any) => void;
+    onRouteDataReady?: (data: any) => void;
 }
 
-function toRad(v: number) { return v * Math.PI / 180; }
-function toDeg(v: number) { return v * 180 / Math.PI; }
+function calculateToRad(val: number) { return val * Math.PI / 180; }
+function calculateToDeg(val: number) { return val * 180 / Math.PI; }
 
-function getBearing(p1: [number, number], p2: [number, number]): number {
-    const lat1 = toRad(p1[0]), lat2 = toRad(p2[0]), dLon = toRad(p2[1] - p1[1]);
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+function getTacticalBearing(pStart: [number, number], pEnd: [number, number]): number {
+    const startLat = calculateToRad(pStart[0]);
+    const endLat = calculateToRad(pEnd[0]);
+    const diffLon = calculateToRad(pEnd[1] - pStart[1]);
+    const yVal = Math.sin(diffLon) * Math.cos(endLat);
+    const xVal = Math.cos(startLat) * Math.sin(endLat) - Math.sin(startLat) * Math.cos(endLat) * Math.cos(diffLon);
+    return (calculateToDeg(Math.atan2(yVal, xVal)) + 360) % 360;
 }
 
-function dist(p1: [number, number], p2: [number, number]): number {
-    const R = 6371000, dLat = toRad(p2[0]-p1[0]), dLon = toRad(p2[1]-p1[1]);
-    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(p1[0])) * Math.cos(toRad(p2[0])) * Math.sin(dLon/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+function getTacticalDist(p1: [number, number], p2: [number, number]): number {
+    const EARTH_RADIUS = 6371000;
+    const dLat = calculateToRad(p2[0] - p1[0]);
+    const dLon = calculateToRad(p2[1] - p1[1]);
+    const haversineValue = Math.sin(dLat / 2) ** 2 + Math.cos(calculateToRad(p1[0])) * Math.cos(calculateToRad(p2[0])) * Math.sin(dLon / 2) ** 2;
+    return EARTH_RADIUS * 2 * Math.atan2(Math.sqrt(haversineValue), Math.sqrt(1 - haversineValue));
 }
 
-function snap(p: [number,number], a: [number,number], b: [number,number]): [number,number] {
-    const x=p[1], y=p[0], x1=a[1], y1=a[0], x2=b[1], y2=b[0];
-    const dx=x2-x1, dy=y2-y1;
-    if(dx===0 && dy===0) return a;
-    const t=((x-x1)*dx+(y-y1)*dy)/(dx*dx+dy*dy);
-    if(t<0) return a; if(t>1) return b;
-    return [y1+t*dy, x1+t*dx];
+function projectPointOnLine(p: [number, number], start: [number, number], end: [number, number]): [number, number] {
+    const px = p[1], py = p[0], x1 = start[1], y1 = start[0], x2 = end[1], y2 = end[0];
+    const dx = x2 - x1, dy = y2 - y1;
+    if (dx === 0 && dy === 0) return start;
+    const projectionFactor = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+    if (projectionFactor < 0) return start;
+    if (projectionFactor > 1) return end;
+    return [y1 + projectionFactor * dy, x1 + projectionFactor * dx];
 }
 
-export default function Map({
-    center=[5.3365, -4.0268], stations=[], alerts=[], units=[], selectedAlert, navigationActive=false, isLiveUnitMode=false, selfUnitId='', speed=0, heading=0, onRouteDataReady
+export default function MapComponent({
+    center = [5.3365, -4.0268],
+    stations = [],
+    alerts = [],
+    units = [],
+    selectedAlert,
+    navigationActive = false,
+    speed = 0,
+    heading = 0,
+    onRouteDataReady
 }: MapProps) {
-    const mapContainer = useRef<HTMLDivElement>(null);
-    const map = useRef<maplibregl.Map | null>(null);
-    const vMarker = useRef<maplibregl.Marker | null>(null);
-    const sMarkers = useRef<{ [key: string]: maplibregl.Marker }>({});
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const mapInstance = useRef<maplibregl.Map | null>(null);
+    const vehicleMarkerRef = useRef<maplibregl.Marker | null>(null);
+    const stationMarkersRef = useRef<{ [key: string]: maplibregl.Marker }>({});
     
-    const [route, setRoute] = useState<any>(null);
-    const [guidance, setGuidance] = useState<any>(null);
-    const [autoCenter, setAutoCenter] = useState(true);
+    const [activeRoute, setActiveRoute] = useState<any>(null);
+    const [guidanceData, setGuidanceData] = useState<any>(null);
+    const [isAutoCentered, setIsAutoCentered] = useState(true);
 
-    // Init Map
+    // Initialisation MapLibre
     useEffect(() => {
-        if (!mapContainer.current) return;
-        const m = new maplibregl.Map({
-            container: mapContainer.current,
+        if (!mapContainerRef.current) return;
+        const map = new maplibregl.Map({
+            container: mapContainerRef.current,
             style: {
                 version: 8,
-                sources: { 'dark': { type: 'raster', tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'], tileSize: 256 } },
-                layers: [{ id: 'base', type: 'raster', source: 'dark' }]
+                sources: { 'carto-dark-base': { type: 'raster', tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'], tileSize: 256 } },
+                layers: [{ id: 'raster-base', type: 'raster', source: 'carto-dark-base' }]
             },
             center: [center[1], center[0]], zoom: 17, pitch: 0, attributionControl: false
         });
-        m.on('dragstart', () => setAutoCenter(false));
-        map.current = m;
-        return () => { m.remove(); };
+        map.on('dragstart', () => setIsAutoCentered(false));
+        mapInstance.current = map;
+        return () => { map.remove(); };
     }, []);
 
-    // OSRM Data
+    // Route Fetching (OSRM)
     useEffect(() => {
         if (!navigationActive || !selectedAlert) {
-            setRoute(null); setGuidance(null);
+            setActiveRoute(null); setGuidanceData(null);
             return;
         }
         fetch(`https://router.project-osrm.org/route/v1/driving/${center[1]},${center[0]};${selectedAlert.lng},${selectedAlert.lat}?overview=full&geometries=geojson&steps=true&language=fr`)
-        .then(r=>r.json()).then(data=>{
-            if (data.code === 'Ok' && data.routes.length > 0) {
-                const r = data.routes[0];
-                setRoute(r);
-                onRouteDataReady?.({ distanceKm: r.distance / 1000, durationMin: r.duration / 60 });
+        .then(res => res.json()).then(result => {
+            if (result.code === 'Ok' && result.routes.length > 0) {
+                const route = result.routes[0];
+                setActiveRoute(route);
+                onRouteDataReady?.({ distanceKm: route.distance / 1000, durationMin: route.duration / 60 });
             }
         });
     }, [selectedAlert?.id, navigationActive, center[0], center[1]]);
 
-    // Rendering Sync
+    // Tactical Visual Sync
     useEffect(() => {
-        const m = map.current;
-        if (!m) return;
+        const map = mapInstance.current;
+        if (!map) return;
 
-        const sync = () => {
-            if (!m.isStyleLoaded()) return;
+        const performSync = () => {
+            if (!map.isStyleLoaded()) return;
 
-            // 1. Snapping
-            let pos = center;
-            const coords = route?.geometry?.coordinates;
-            if (navigationActive && coords && coords.length > 1) {
-                let minD = Infinity;
-                for(let i=0; i<coords.length-1; i++) {
-                    const snp = snap(center, [coords[i][1], coords[i][0]], [coords[i+1][1], coords[i+1][0]]);
-                    const d = dist(center, snp);
-                    if (d < minD) { minD = d; pos = snp; }
+            // 1. Snapping Logic
+            let finalGpsPos = center;
+            const routeCoords = activeRoute?.geometry?.coordinates;
+            if (navigationActive && routeCoords && routeCoords.length > 1) {
+                let minDistance = Infinity;
+                for (let i = 0; i < routeCoords.length - 1; i++) {
+                    const snapped = projectPointOnLine(center, [routeCoords[i][1], routeCoords[i][0]], [routeCoords[i + 1][1], routeCoords[i + 1][0]]);
+                    const currentDistance = getTacticalDist(center, snapped);
+                    if (currentDistance < minDistance) { minDistance = currentDistance; finalGpsPos = snapped; }
                 }
-                if (minD > 35) pos = center;
+                if (minDistance > 35) finalGpsPos = center;
             }
-            const target: [number, number] = [pos[1], pos[0]];
+            const mapTargetPos: [number, number] = [finalGpsPos[1], finalGpsPos[0]];
 
-            // 2. Route Layer (Ensured)
-            if (route && navigationActive) {
-                if (!m.getSource(SR)) {
-                    m.addSource(SR, { type: 'geojson', data: route.geometry });
-                    m.addLayer({ id: LC, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 18, 'line-opacity': 0.15, 'line-blur': 10 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
-                    m.addLayer({ id: LR, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 8 }, layout: { 'line-join': 'round', 'line-cap': 'round' } }, LC);
+            // 2. Route Layer Injection
+            if (activeRoute && navigationActive) {
+                if (!map.getSource(ROUTE_SOURCE_ID)) {
+                    map.addSource(ROUTE_SOURCE_ID, { type: 'geojson', data: activeRoute.geometry });
+                    map.addLayer({ id: ROUTE_CASING_LAYER, type: 'line', source: ROUTE_SOURCE_ID, paint: { 'line-color': '#3b82f6', 'line-width': 18, 'line-opacity': 0.15, 'line-blur': 10 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
+                    map.addLayer({ id: ROUTE_LINE_LAYER, type: 'line', source: ROUTE_SOURCE_ID, paint: { 'line-color': '#3b82f6', 'line-width': 8 }, layout: { 'line-join': 'round', 'line-cap': 'round' } }, ROUTE_CASING_LAYER);
                 } else {
-                    (m.getSource(SR) as any).setData(route.geometry);
-                    if (!m.getLayer(LR)) {
-                         m.addLayer({ id: LC, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 18, 'line-opacity': 0.15, 'line-blur': 10 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
-                         m.addLayer({ id: LR, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 8 }, layout: { 'line-join': 'round', 'line-cap': 'round' } }, LC);
+                    (map.getSource(ROUTE_SOURCE_ID) as any).setData(activeRoute.geometry);
+                    if (!map.getLayer(ROUTE_LINE_LAYER)) {
+                         map.addLayer({ id: ROUTE_CASING_LAYER, type: 'line', source: ROUTE_SOURCE_ID, paint: { 'line-color': '#3b82f6', 'line-width': 18, 'line-opacity': 0.15, 'line-blur': 10 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
+                         map.addLayer({ id: ROUTE_LINE_LAYER, type: 'line', source: ROUTE_SOURCE_ID, paint: { 'line-color': '#3b82f6', 'line-width': 8 }, layout: { 'line-join': 'round', 'line-cap': 'round' } }, ROUTE_CASING_LAYER);
                     }
                 }
-            } else if (m.getSource(SR)) {
-                (m.getSource(SR) as any).setData({ type: 'FeatureCollection', features: [] });
+            } else if (map.getSource(ROUTE_SOURCE_ID)) {
+                (map.getSource(ROUTE_SOURCE_ID) as any).setData({ type: 'FeatureCollection', features: [] });
             }
 
-            // 3. Vehicle Marker
-            if (!vMarker.current) {
-                const el = document.createElement('div');
-                el.innerHTML = `<svg viewBox="0 0 100 100" style="width:44px;height:44px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.6));transition:transform 0.1s linear"><path d="M50 5 L90 95 L50 75 L10 95 Z" fill="#3b82f6" stroke="#fff" stroke-width="6"/></svg>`;
-                vMarker.current = new maplibregl.Marker({ element: el }).setLngLat(target).addTo(m);
+            // 3. Vehicle Arrow Sync
+            if (!vehicleMarkerRef.current) {
+                const element = document.createElement('div');
+                element.innerHTML = `<svg viewBox="0 0 100 100" style="width:44px;height:44px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.6));transition:transform 0.1s linear"><path d="M50 5 L90 95 L50 75 L10 95 Z" fill="#3b82f6" stroke="#fff" stroke-width="6"/></svg>`;
+                vehicleMarkerRef.current = new maplibregl.Marker({ element: element }).setLngLat(mapTargetPos).addTo(map);
             } else {
-                vMarker.current.setLngLat(target);
+                vehicleMarkerRef.current.setLngLat(mapTargetPos);
             }
 
-            // 4. Camera & Guidance
-            if (navigationActive && route?.legs?.[0]?.steps) {
-                const steps = route.legs[0].steps;
-                let next = steps[0];
-                for(let s of steps) { if(dist(center,[s.maneuver.location[1], s.maneuver.location[0]]) < 25) { next = steps[steps.indexOf(s)+1]||s; break; } }
-                setGuidance({ text: next.maneuver.instruction.toUpperCase(), dist: Math.round(dist(center,[next.maneuver.location[1],next.maneuver.location[0]])) });
+            // 4. Guidance & Camera Animation
+            if (navigationActive && activeRoute?.legs?.[0]?.steps) {
+                const steps = activeRoute.legs[0].steps;
+                let nextStep = steps[0];
+                for (const step of steps) {
+                    if (getTacticalDist(center, [step.maneuver.location[1], step.maneuver.location[0]]) < 25) {
+                        nextStep = steps[steps.indexOf(step) + 1] || step;
+                        break;
+                    }
+                }
+                const distanceToManeuver = getTacticalDist(center, [nextStep.maneuver.location[1], nextStep.maneuver.location[0]]);
+                setGuidanceData({ text: nextStep.maneuver.instruction.toUpperCase(), dist: Math.round(distanceToManeuver) });
                 
-                let tB = heading > 0 ? heading : (coords?.length>1 ? getBearing([coords[0][1],coords[0][0]],[coords[1][1],coords[1][0]]) : 0);
-                if (autoCenter) {
-                    const cB = m.getBearing();
-                    const sB = cB + ((tB - cB + 540) % 360 - 180) * 0.2;
-                    const svg = vMarker.current.getElement().querySelector('svg') as any;
-                    if (svg) svg.style.transform = `rotate(${tB - sB}deg)`;
-                    m.easeTo({ center: target, bearing: sB, pitch: 45, zoom: speed*3.6<15?20:18.5, duration: 800 });
+                let targetBearing = heading > 0 ? heading : (routeCoords?.length > 1 ? getTacticalBearing([routeCoords[0][1], routeCoords[0][0]], [routeCoords[1][1], routeCoords[1][0]]) : 0);
+                
+                if (isAutoCentered) {
+                    const currentMapBearing = map.getBearing();
+                    const smoothBearing = currentMapBearing + ((targetBearing - currentMapBearing + 540) % 360 - 180) * 0.2;
+                    const arrowSvg = vehicleMarkerRef.current.getElement().querySelector('svg') as any;
+                    if (arrowSvg) arrowSvg.style.transform = `rotate(${targetBearing - smoothBearing}deg)`;
+                    map.easeTo({ center: mapTargetPos, bearing: smoothBearing, pitch: 45, zoom: speed * 3.6 < 15 ? 20 : 18.5, duration: 800 });
                 }
             } else {
-                if (autoCenter) m.easeTo({ center: [center[1], center[0]], pitch: 0, bearing: 0, duration: 800 });
-                const svg = vMarker.current.getElement().querySelector('svg') as any;
-                if (svg) svg.style.transform = `rotate(0deg)`;
+                if (isAutoCentered) map.easeTo({ center: [center[1], center[0]], pitch: 0, bearing: 0, duration: 800 });
+                const arrowSvg = vehicleMarkerRef.current?.getElement().querySelector('svg') as any;
+                if (arrowSvg) arrowSvg.style.transform = `rotate(0deg)`;
             }
 
-            // 5. Stations
-            stations.forEach(s => {
-                if (sMarkers.current[s.id]) return;
-                const el = document.createElement('div'); el.style.background='#3b82f6'; el.style.width='24px'; el.style.height='24px'; el.style.borderRadius='6px'; el.style.border='2px solid #fff'; el.style.display='flex'; el.style.alignItems='center'; el.style.justifyContent='center'; el.style.fontSize='12px'; el.innerHTML='🏠';
-                sMarkers.current[s.id] = new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(m);
+            // 5. Station Markers Sync
+            stations.forEach(station => {
+                if (stationMarkersRef.current[station.id]) return;
+                const stationElement = document.createElement('div');
+                stationElement.style.background = '#3b82f6'; stationElement.style.width = '24px'; stationElement.style.height = '24px';
+                stationElement.style.borderRadius = '6px'; stationElement.style.border = '2px solid #fff';
+                stationElement.style.display = 'flex'; stationElement.style.alignItems = 'center'; stationElement.style.justifyContent = 'center';
+                stationElement.style.fontSize = '12px'; stationElement.innerHTML = '🏠';
+                stationMarkersRef.current[station.id] = new maplibregl.Marker({ element: stationElement }).setLngLat([station.lng, station.lat]).addTo(map);
             });
         };
 
-        if (!m.isStyleLoaded()) {
-            m.once('style.load', sync);
+        if (!map.isStyleLoaded()) {
+            map.once('style.load', performSync);
         } else {
-            sync();
+            performSync();
         }
-    }, [center, speed, heading, navigationActive, route, autoCenter, stations, alerts]);
+    }, [center, speed, heading, navigationActive, activeRoute, isAutoCentered, stations, alerts]);
 
     return (
         <div className={styles.mapWrapper}>
-            <div ref={mapContainer} className={styles.mapContainerMain} />
-            {navigationActive && guidance && (<div className={styles.guidanceBanner}><div className={styles.guidanceText}>{guidance.text} ({guidance.dist}M)</div></div>)}
-            {!autoCenter && <button onClick={() => setAutoCenter(true)} className={styles.tacticalRecenterBtn}>🎯 RECENTRER</button>}
+            <div ref={mapContainerRef} className={styles.mapContainerMain} />
+            {navigationActive && guidanceData && (
+                <div className={styles.guidanceBanner}>
+                    <div className={styles.guidanceText}>{guidanceData.text} ({guidanceData.dist}M)</div>
+                </div>
+            )}
+            {!isAutoCentered && (
+                <button onClick={() => setIsAutoCentered(true)} className={styles.tacticalRecenterBtn}>🎯 RECENTRER</button>
+            )}
         </div>
     );
 }

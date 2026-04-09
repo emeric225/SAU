@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import dynamic from 'next/dynamic';
+import NextDynamic from 'next/dynamic';
 import { io, Socket } from 'socket.io-client';
 import styles from './unit.module.css';
 
@@ -13,7 +13,9 @@ import { ReportModal } from './components/ReportModal';
 
 import type { MapProps } from '../../components/Map';
 
-const UnitMap = dynamic<any>(() => import('../../components/Map'), { ssr: false });
+export const dynamic = 'force-dynamic';
+
+const UnitMap = NextDynamic<any>(() => import('../../components/Map'), { ssr: false });
 
 const DEFAULT_CENTER: [number, number] = [5.3365, -4.0268];
 
@@ -40,6 +42,24 @@ export default function UnitInterface() {
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+
+  // PWA Install Prompt
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      showToast('📥 APPLICATION SAU DISPONIBLE', 'info', 5000);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, [showToast]);
+
+  // Tactical Audio Listeners
+  useEffect(() => {
+    const handleNav = () => { if(audioEnabled) playNavBeep(); };
+    window.addEventListener('sau-nav-instruction', handleNav);
+    return () => window.removeEventListener('sau-nav-instruction', handleNav);
+  }, [audioEnabled, playNavBeep]);
   const [serverWaking, setServerWaking] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
@@ -403,6 +423,13 @@ export default function UnitInterface() {
     requestWakeLock();
   };
 
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setDeferredPrompt(null);
+  };
+
   const handleReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const form = e.target as HTMLFormElement;
@@ -511,13 +538,10 @@ export default function UnitInterface() {
         isOnline={isOnline}
         syncing={syncing}
         audioEnabled={audioEnabled}
-        onActivateAudio={() => {
-          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-          setAudioEnabled(true);
-        }}
+        onActivateAudio={handleTacticalActivation}
         onLogout={handleLogout}
         deferredPrompt={deferredPrompt}
-        onInstall={() => {}}
+        onInstall={handleInstall}
       />
 
       {/* Navigation Overlay */}
