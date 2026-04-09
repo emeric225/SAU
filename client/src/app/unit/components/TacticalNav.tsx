@@ -1,93 +1,46 @@
-'use client';
-
 import React from 'react';
 import styles from '../unit.module.css';
 
 interface TacticalNavProps {
-  mission: any;
-  unitStatus: string;
-  routeData: any;
-  onUpdateStatus: (status: string) => void;
-  onShowReport: () => void;
-  getFormattedArrival: () => string;
+  status: 'available' | 'en_route' | 'on_site';
+  nextInstruction: string | null;
+  distanceToInstruction: number;
+  missionType: string | null;
+  locationName: string | null;
+  onActionClick: () => void;
 }
 
 export const TacticalNav: React.FC<TacticalNavProps> = ({
-  mission,
-  unitStatus,
-  routeData,
-  onUpdateStatus,
-  onShowReport,
-  getFormattedArrival
+  status,
+  nextInstruction,
+  distanceToInstruction,
+  missionType,
+  locationName,
+  onActionClick
 }) => {
-  if (!mission) return null;
+  if (status === 'available') return null; // Le bouton "Nouvelle Mission" vient du Briefing
 
-  if (unitStatus === 'en_route') {
-    return (
-      <>
-        {/* L'instruction de navigation est maintenant gérée par le composant Map en XXL */}
-        
-        {/* Tactical Floating Call Button */}
-        {mission.phone && (
-          <div className={styles.navCallFloatingContainer}>
-             <a href={`tel:${mission.phone}`} className={styles.btnCallTactical}>
-               <span className={styles.callIcon}>📞</span>
-               <span className={styles.callLabel}>APPELER</span>
-             </a>
-          </div>
+  return (
+    <>
+      {status === 'en_route' && (
+        <div className={styles.directionBanner}>
+          <div className={styles.directionDistance}>{distanceToInstruction > 1000 ? (distanceToInstruction/1000).toFixed(1)+' km' : distanceToInstruction+' m'}</div>
+          <div className={styles.directionText}>{nextInstruction || 'Proceed to destination'}</div>
+        </div>
+      )}
+
+      <div className={styles.actionBottomBar}>
+        {status === 'en_route' && (
+          <button className={`${styles.actionBtn} ${styles.btnOnSite}`} onClick={onActionClick}>
+             NOUS SOMMES SUR PLACE
+          </button>
         )}
-
-        {/* Bottom ETA bar */}
-        <div className={styles.etaBar}>
-          <div className={styles.etaBlock}>
-            <div className={styles.etaValue}>{routeData ? Math.ceil(routeData.durationMin) : '--'}</div>
-            <div className={styles.etaLabel}>MIN</div>
-          </div>
-          <div className={styles.etaDivider}></div>
-          <div className={styles.etaBlock}>
-            <div className={styles.etaValue}>{routeData ? routeData.distanceKm.toFixed(1) : '--'}</div>
-            <div className={styles.etaLabel}>KM</div>
-          </div>
-          <div className={styles.etaDivider}></div>
-          <div className={styles.etaArriveBtn} onClick={() => onUpdateStatus('on_site')} style={{ cursor: 'pointer', background: '#f59e0b', color: '#000', fontWeight: 900, padding: '14px 20px', borderRadius: 16, fontSize: 14, border: 'none', whiteSpace: 'nowrap' }}>
-            📍 SUR PLACE
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (unitStatus === 'on_site') {
-    return (
-      <div className={styles.navPanel}>
-        <div className={styles.onSiteHeader}>
-          <span className={styles.missionPulse}>●</span>
-          <strong>MISSION EN COURS — SUR PLACE</strong>
-        </div>
-        
-        <button 
-          onClick={onShowReport} 
-          className={styles.combatBtnXxl}
-          style={{ backgroundColor: '#10b981', color: '#000' }}
-        >
-          ✅ CLÔTURER LA MISSION
-        </button>
-
-        <div className={styles.forceStatusRow}>
-          <label className={styles.forceStatusLabel}>STATUT :</label>
-          <select 
-            value={unitStatus} 
-            onChange={(e) => onUpdateStatus(e.target.value)}
-            className={styles.forceStatusSelect}
-          >
-            <option value="en_route">En route</option>
-            <option value="on_site">Sur place</option>
-            <option value="available">Terminer (Disponible)</option>
-          </select>
-        </div>
+        {status === 'on_site' && (
+          <button className={`${styles.actionBtn} ${styles.btnFinish}`} onClick={onActionClick}>
+             CLÔTURER DÉPLOIEMENT
+          </button>
+        )}
       </div>
-    );
-  }
-
-  return null;
+    </>
+  );
 };
