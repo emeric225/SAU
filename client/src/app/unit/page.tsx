@@ -42,7 +42,9 @@ export default function UnitInterface() {
   const [socketConnected, setSocketConnected] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [speed, setSpeed] = useState(0);
-  const [heading, setHeading] = useState(0);
+  const [heading, setHeading] = useState(0);          // GPS heading (fallback)
+  const [compassHeading, setCompassHeading] = useState(0); // DeviceOrientation compass
+  const compassRef = useRef(0);                        // raw compass value
 
   // ─── Refs ────────────────────────────────────────────────────────────────────
   const gpsLockedRef = useRef(false);
@@ -239,6 +241,47 @@ export default function UnitInterface() {
       } catch (e) { setLoading(false); }
     }
   }, [initSocket, requestWakeLock, showToast]);
+
+  // ─── Compass (DeviceOrientation API) ──────────────────────────────────────────
+  useEffect(() => {
+    if (!unit) return;
+    if (typeof window === 'undefined') return;
+
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      // iOS: webkitCompassHeading is the most accurate (true compass heading)
+      const ios = (e as any).webkitCompassHeading;
+      let deg: number;
+      if (ios !== undefined && ios !== null) {
+        deg = ios; // 0=North, clockwise ✓
+      } else if (e.alpha !== null) {
+        // Android: alpha is azimuth (0=North, but counterclockwise)
+        deg = (360 - e.alpha) % 360;
+      } else {
+        return;
+      }
+      compassRef.current = deg;
+      setCompassHeading(deg);
+    };
+
+    const startListening = () => {
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    };
+
+    // iOS 13+ requires explicit permission
+    const DOE = (DeviceOrientationEvent as any);
+    if (typeof DOE.requestPermission === 'function') {
+      DOE.requestPermission()
+        .then((state: string) => {
+          if (state === 'granted') startListening();
+          else showToast('⚠️ Boussole refusée — rotation GPS uniquement', 'warning', 4000);
+        })
+        .catch(() => startListening()); // try anyway
+    } else {
+      startListening();
+    }
+
+    return () => window.removeEventListener('deviceorientation', handleOrientation, true);
+  }, [unit, showToast]);
 
   // ─── GPS Tracking ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -464,7 +507,7 @@ export default function UnitInterface() {
             center={gpsPos}
             isLiveUnitMode={true}
             speed={speed}
-            heading={heading}
+            heading={compassHeading || heading}
             onRouteDataReady={onRouteDataReady}
           />
         ) : (

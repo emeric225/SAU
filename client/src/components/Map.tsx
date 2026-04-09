@@ -247,11 +247,11 @@ export default function Map({
 
     let newBearing: number | null = null;
 
-    // Priority 1: Real GPS heading sensor (most accurate)
-    if(heading !== null && heading > 0 && speed > 0.5){
-      newBearing = heading;
+    // Priority 1: DeviceOrientation compass (most accurate — real-time, no movement needed)
+    if(heading > 0){
+      newBearing = heading; // already converted to 0=N clockwise in page.tsx
     }
-    // Priority 2: Calculate from movement trajectory
+    // Priority 2: Calculate from movement trajectory (GPS speed)
     else if(d > 3){
       newBearing = bearing(prev, gps);
     }
