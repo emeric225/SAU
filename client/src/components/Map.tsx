@@ -11,7 +11,7 @@ const LR = 'route-line';
 const LC = 'route-casing';
 
 export interface MapProps {
-    center: [number, number];
+    center?: [number, number];
     stations?: any[];
     alerts?: any[];
     units?: any[];
@@ -50,7 +50,7 @@ function snap(p: [number,number], a: [number,number], b: [number,number]): [numb
 }
 
 export default function Map({
-    center, stations=[], alerts=[], units=[], selectedAlert, navigationActive=false, isLiveUnitMode=false, selfUnitId='', speed=0, heading=0, onRouteDataReady
+    center=[5.3365, -4.0268], stations=[], alerts=[], units=[], selectedAlert, navigationActive=false, isLiveUnitMode=false, selfUnitId='', speed=0, heading=0, onRouteDataReady
 }: MapProps) {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<maplibregl.Map | null>(null);
@@ -153,13 +153,13 @@ export default function Map({
                 if (autoCenter) {
                     const cB = m.getBearing();
                     const sB = cB + ((tB - cB + 540) % 360 - 180) * 0.2;
-                    const svg = vMarker.current.getElement().querySelector('svg') as HTMLElement;
+                    const svg = vMarker.current.getElement().querySelector('svg') as any;
                     if (svg) svg.style.transform = `rotate(${tB - sB}deg)`;
                     m.easeTo({ center: target, bearing: sB, pitch: 45, zoom: speed*3.6<15?20:18.5, duration: 800 });
                 }
             } else {
                 if (autoCenter) m.easeTo({ center: [center[1], center[0]], pitch: 0, bearing: 0, duration: 800 });
-                const svg = vMarker.current.getElement().querySelector('svg') as HTMLElement;
+                const svg = vMarker.current.getElement().querySelector('svg') as any;
                 if (svg) svg.style.transform = `rotate(0deg)`;
             }
 
