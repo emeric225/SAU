@@ -365,10 +365,34 @@ export default function Dashboard() {
                         <span className={`${styles.typeBadge} ${styles[a.type] || ''}`}>{a.type?.toUpperCase()}</span>
                         <span className={styles.timeLabel}>{new Date(a.created_at).toLocaleTimeString('fr-FR')}</span>
                       </div>
+                      
                       <div className={styles.cardBody}>
-                        <strong>{a.name || 'APPELANT INCONNU'}</strong>
-                        <div className={styles.locationSmall}>{a.station_id ? stations.find(s => s.id === a.station_id)?.name : '⚠️ Non assigné'}</div>
+                        {a.photo_url && (
+                          <div className={styles.cardPhotoThumb}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={a.photo_url} alt="SOS" onClick={e => { e.stopPropagation(); setViewingPhoto(a.photo_url); }} />
+                          </div>
+                        )}
+                        <div className={styles.cardInfoCol}>
+                          <div className={styles.callerInfo}>
+                            <strong>{a.name || 'APPELANT INCONNU'}</strong>
+                            <span>{a.phone || 'N/A'}</span>
+                          </div>
+                          <div className={styles.locationSmall}>📝 {a.notes || 'Aucun détail.'}</div>
+                          <div className={styles.locationSmall} style={{ marginTop: '8px', padding: '4px', background: 'rgba(0,0,0,0.2)', borderRadius: '4px' }}>
+                            {a.station_id ? `🏢 Assigné à: ${stations.find(s => s.id === a.station_id)?.name}` : '⚠️ NON ASSIGNÉ'}
+                          </div>
+                        </div>
                       </div>
+                      
+                      {a.status === 'resolved' && a.report && (
+                        <div className={styles.missionReportSummary}>
+                          <div className={styles.reportTag}>RAPPORT D'INTERVENTION</div>
+                          <p><strong>Actions:</strong> {a.report.actions}</p>
+                          <p><strong>Bilan:</strong> {a.report.victimes}</p>
+                        </div>
+                      )}
+
                       {a.status === 'pending' && (
                         <select
                           className={styles.assignSelect}
@@ -407,15 +431,36 @@ export default function Dashboard() {
                     ))}
                   </div>
                   {filteredAlerts.map(a => (
-                    <div key={a.id} className={`${styles.tacticalCard} ${a.status === 'pending' ? styles.dangerPulse : ''}`} onClick={() => { setSelectedAlert(a); setCurrentView('map'); }}>
+                    <div key={a.id} className={`${styles.tacticalCard} ${a.status === 'pending' ? styles.dangerPulse : ''} ${selectedAlert?.id === a.id ? styles.tacticalSelected : ''}`} onClick={() => { setSelectedAlert(a); setCurrentView('map'); }}>
                       <div className={styles.cardHeader}>
                         <span className={`${styles.typeBadge} ${styles[a.type] || ''}`}>{a.type?.toUpperCase()}</span>
                         <span className={styles.timeLabel}>{new Date(a.created_at).toLocaleTimeString('fr-FR')}</span>
                       </div>
                       <div className={styles.cardBody}>
-                        <strong>{a.name || 'ANONYME'}</strong>
-                        <div className={styles.locationSmall}>{a.station_id ? stations.find(s => s.id === a.station_id)?.name : '⚠️ NON ASSIGNÉ'}</div>
+                        {a.photo_url && (
+                          <div className={styles.cardPhotoThumb} style={{ cursor: 'zoom-in' }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={a.photo_url} alt="SOS" onClick={e => { e.stopPropagation(); setViewingPhoto(a.photo_url); }} />
+                          </div>
+                        )}
+                        <div className={styles.cardInfoCol}>
+                          <div className={styles.callerInfo}>
+                            <strong>{a.name || 'ANONYME'}</strong>
+                            <span>{a.phone || 'N/A'}</span>
+                          </div>
+                          <div className={styles.locationSmall}>📝 {a.notes || 'Aucun détail.'}</div>
+                          <div className={styles.locationSmall} style={{ marginTop: '8px', padding: '4px', background: 'rgba(0,0,0,0.2)', borderRadius: '4px' }}>
+                            {a.station_id ? `🏢 Assigné à: ${stations.find(s => s.id === a.station_id)?.name}` : '⚠️ NON ASSIGNÉ'}
+                          </div>
+                        </div>
                       </div>
+                      {a.status === 'resolved' && a.report && (
+                        <div className={styles.missionReportSummary}>
+                          <div className={styles.reportTag}>RAPPORT D'INTERVENTION</div>
+                          <p><strong>Actions:</strong> {a.report.actions}</p>
+                          <p><strong>Bilan:</strong> {a.report.victimes}</p>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </>
