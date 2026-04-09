@@ -62,9 +62,7 @@ export const getManeuverIcon = (type: string, modifier: string) => {
 
 export const cleanInstruction = (text: string) => {
   if (!text) return '';
-  // Traduction et nettoyage agressif
-  let res = text.replace(/Head (north|south|east|west|northeast|northwest|southeast|southwest) on /ig, 'CONTINUEZ SUR ');
-  res = res.replace(/Prenez la direction (nord|sud|est|ouest|nord-est|nord-ouest|sud-est|sud-ouest) sur /ig, 'CONTINUEZ SUR ');
+  let res = text.replace(/(Prenez la direction|Head|Se diriger vers le|Se diriger vers la|Direction|Vers) (nord|sud|est|ouest|nord-est|nord-ouest|sud-est|sud-ouest) sur (la |le )?/ig, 'CONTINUEZ SUR ');
   res = res.replace(/Turn (left|right) onto /ig, (m, dir) => dir === 'left' ? 'TOURNEZ À GAUCHE SUR ' : 'TOURNEZ À DROITE SUR ');
   res = res.replace(/Tournez à (gauche|droite) sur /ig, (m, dir) => dir === 'gauche' ? 'TOURNEZ À GAUCHE SUR ' : 'TOURNEZ À DROITE SUR ');
   return res.toUpperCase();
@@ -446,8 +444,8 @@ export default function Map({
     }
   }, [center[0], center[1], selectedAlert?.id, selectedAlert?.lat]);
 
-  const mapRotation = (navigationActive && autoCenter) ? -smoothRotation : 0;
-  const invRot = (navigationActive && autoCenter) ? smoothRotation : 0;
+  const mapRotation = navigationActive ? -smoothRotation : 0;
+  const invRot = navigationActive ? smoothRotation : 0;
 
   return (
     <div className={styles.mapWrapper}>
@@ -463,12 +461,11 @@ export default function Map({
       {/* Auto-Rotating Oversized Map Container */}
       <div style={{
         position: 'absolute',
-        width: '300vmax', height: '300vmax',
+        width: '400vw', height: '400vh',
         top: '50%', left: '50%',
-        // Shift map DOWN by 12vh to place vehicle at ~38% from bottom (above ETA bar)
-        transform: `translate(-50%, calc(-50% + ${navigationActive ? '12vh' : '0vh'})) rotate(${mapRotation}deg)`,
+        transform: `translate(-50%, calc(-50% + ${navigationActive ? '15vh' : '0vh'})) rotate(${mapRotation}deg)`,
         transformOrigin: '50% 50%',
-        transition: 'transform 0.4s cubic-bezier(0.1, 0, 0.3, 1)'
+        transition: 'transform 0.5s cubic-bezier(0.1, 0, 0.3, 1)'
       }}>
         <MapContainer center={center} zoom={14} scrollWheelZoom={true} zoomControl={false} className={styles.mapContainerMain}>
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO" />
