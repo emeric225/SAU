@@ -260,8 +260,10 @@ export default function Dashboard() {
     if (user?.id !== 'admin' && a.station_id !== user?.id) return false;
     if (user?.id !== 'admin') {
       if (currentView === 'history') return a.status === 'resolved';
+      if (currentView === 'dispatch' && a.status === 'resolved') return false;
     }
     if (filter === 'all') return true;
+    if (filter === 'dispatched' && (a.status === 'dispatched' || a.status === 'on_site')) return true;
     return a.status === filter;
   });
 
@@ -600,7 +602,14 @@ export default function Dashboard() {
 
               {(currentView === 'dispatch' || currentView === 'history') && (
                 <>
-                  {filteredAlerts.length === 0 && <p className={styles.noAlerts}>{currentView === 'dispatch' ? 'Aucune alerte active.' : 'Aucun historique.'}</p>}
+                  {currentView === 'dispatch' && (
+                    <div className={styles.filterTabs} style={{ marginTop: '0px', marginBottom: '16px', background: 'rgba(0,0,0,0.2)', padding: '6px', borderRadius: '12px' }}>
+                      <button className={filter === 'all' ? styles.activeTab : ''} onClick={() => setFilter('all')} style={{ flex: 1, padding: '8px', fontSize: '13px' }}>Tout</button>
+                      <button className={filter === 'pending' ? styles.activeTab : ''} onClick={() => setFilter('pending')} style={{ flex: 1, padding: '8px', fontSize: '13px' }}>Nouvelles Alertes</button>
+                      <button className={filter === 'dispatched' ? styles.activeTab : ''} onClick={() => setFilter('dispatched')} style={{ flex: 1, padding: '8px', fontSize: '13px' }}>En Intervention</button>
+                    </div>
+                  )}
+                  {filteredAlerts.length === 0 && <p className={styles.noAlerts}>{currentView === 'dispatch' ? 'Aucune alerte correspondante.' : 'Aucun historique.'}</p>}
                   {filteredAlerts.map(a => (
                     <div key={a.id} className={`${styles.tacticalCard} ${a.status === 'pending' ? styles.dangerPulse : ''} ${selectedAlert?.id === a.id ? styles.tacticalSelected : ''}`} onClick={() => setSelectedAlert(a)}>
                       <div className={styles.cardHeader}>
