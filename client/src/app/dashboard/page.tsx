@@ -265,8 +265,36 @@ export default function Dashboard() {
     return a.status === filter;
   });
 
-  const visibleAlerts = user?.id === 'admin' ? alerts : alerts.filter(a => a.station_id === user?.id);
+  const visibleAlerts = (user?.id === 'admin' ? alerts : alerts.filter(a => a.station_id === user?.id)).filter(a => a.status !== 'resolved');
   const visibleUnits = user?.id === 'admin' ? units : units.filter(u => u.station_id === user?.id);
+
+  const handleDownloadReport = () => {
+    const stationAlerts = alerts.filter(a => a.station_id === user?.id);
+    let csvContent = "\uFEFFID,Type,Nom,Date,Statut,Actions,Bilan,Heure_Transit,Heure_Site\n";
+    
+    stationAlerts.forEach(a => {
+      const row = [
+        a.id,
+        a.type,
+        `"${(a.name || 'Anonyme').replace(/"/g, '""')}"`,
+        new Date(a.created_at).toLocaleString('fr-FR'),
+        a.status,
+        `"${(a.report?.actions || '').replace(/"/g, '""')}"`,
+        `"${(a.report?.victimes || '').replace(/"/g, '""')}"`,
+        a.transit_at ? new Date(a.transit_at).toLocaleString('fr-FR') : '',
+        a.on_site_at ? new Date(a.on_site_at).toLocaleString('fr-FR') : ''
+      ].join(",");
+      csvContent += row + "\n";
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `rapport_SAU_${user?.name?.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // ─── Loading ──────────────────────────────────────────────────────────────────
   if (!mounted) {
@@ -509,6 +537,7 @@ export default function Dashboard() {
                 <button className={currentView === 'dispatch' ? styles.activeTab : ''} onClick={() => { setCurrentView('dispatch'); setFilter('all'); }}>🚨 ALERTES</button>
                 <button className={currentView === 'stations' ? styles.activeTab : ''} onClick={() => setCurrentView('stations')}>🚒 FLOTTE</button>
                 <button className={currentView === 'history' ? styles.activeTab : ''} onClick={() => { setCurrentView('history'); setFilter('resolved'); }}>📜 HISTORIQUE</button>
+                <button className={currentView === 'analytics' ? styles.activeTab : ''} onClick={() => setCurrentView('analytics')}>📊 STATS</button>
               </div>
 
               {currentView === 'stations' && (
@@ -537,6 +566,36 @@ export default function Dashboard() {
                   ))}
                   {units.filter(u => u.station_id === user?.id).length === 0 && <p className={styles.noAlerts}>Aucune unité rattachée.</p>}
                 </>
+              )}
+
+              {currentView === 'analytics' && (
+                <div className={styles.fleetView}>
+                  <div className={styles.mgmtHeader}>
+                    <h3 className={styles.mgmtTitle}>STATISTIQUES AVANCÉES</h3>
+                    <button className={styles.btnMgmtAdd} onClick={handleDownloadReport} style={{ background: '#10b981', display: 'flex', gap: '8px', alignItems: 'center', fontSize: '11px', padding: '8px 12px' }}>
+                      ⬇️ TÉLÉCHARGER LE RAPPORT
+                    </button>
+                  </div>
+                  
+                  <div className={styles.statsGrid}>
+                    <div className={styles.statCard} style={{ background: 'rgba(255,255,255,0.02)' }}><span className={styles.statVal} style={{color:'#3b82f6'}}>{alerts.filter(a => a.station_id === user?.id).length}</span><span className={styles.statLabel}>Alertes Traitées</span></div>
+                    <div className={styles.statCard} style={{ background: 'rgba(255,255,255,0.02)' }}><span className={styles.statVal} style={{color:'#10b981'}}>{alerts.filter(a => a.station_id === user?.id && a.status === 'resolved').length}</span><span className={styles.statLabel}>Missions Clôturées</span></div>
+                    <div className={styles.statCard} style={{ background: 'rgba(255,255,255,0.02)' }}><span className={styles.statVal} style={{color:'#f59e0b'}}>{units.filter(u => u.station_id === user?.id).length}</span><span className={styles.statLabel}>Unités Disponibles</span></div>
+                    <div className={styles.statCard} style={{ background: 'rgba(255,255,255,0.02)' }}><span className={styles.statVal} style={{color:'#e11d48'}}>{alerts.filter(a => a.station_id === user?.id && a.status === 'pending').length}</span><span className={styles.statLabel}>Urgences Attente</span></div>
+                  </div>
+
+                  <div className={styles.reportSummary} style={{ marginTop: '20px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                     <h4 style={{ color: '#fff', marginBottom: '12px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Détail des Interventions</h4>
+                     {alerts.filter(a => a.station_id === user?.id && a.status === 'resolved').slice(0, 5).map(a => (
+                       <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '12px 0', fontSize: '12px', alignItems: 'center' }}>
+                          <span style={{ color: '#94a3b8' }}>{new Date(a.created_at).toLocaleDateString('fr-FR')}</span>
+                          <span style={{ color: '#fff', fontWeight: 800 }}>{a.type.toUpperCase()}</span>
+                          <span style={{ color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '4px' }}>✓ Clôturée</span>
+                       </div>
+                     ))}
+                     {alerts.filter(a => a.station_id === user?.id && a.status === 'resolved').length === 0 && <p style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic', textAlign: 'center', marginTop: 16 }}>Aucune intervention clôturée récente.</p>}
+                  </div>
+                </div>
               )}
 
               {(currentView === 'dispatch' || currentView === 'history') && (
