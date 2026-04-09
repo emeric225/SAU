@@ -101,6 +101,33 @@ export default function UnitInterface() {
     } catch (e) { console.error('Audio error', e); }
   }, []);
 
+  const playNavBeep = useCallback(() => {
+    if (!audioCtxRef.current) return;
+    try {
+      const audioCtx = audioCtxRef.current;
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(800, t);
+      osc.frequency.exponentialRampToValueAtTime(1200, t + 0.1);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.3, t + 0.05);
+      gain.gain.linearRampToValueAtTime(0, t + 0.2);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    } catch(e) {}
+  }, []);
+
+  useEffect(() => {
+    const handleNav = () => playNavBeep();
+    window.addEventListener('sau-nav-instruction', handleNav);
+    return () => window.removeEventListener('sau-nav-instruction', handleNav);
+  }, [playNavBeep]);
+
   // ─── Auth / Login ────────────────────────────────────────────────────────────
   const loginUnit = async () => {
     if (!unitId || loading) return;
