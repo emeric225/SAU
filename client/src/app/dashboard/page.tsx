@@ -828,9 +828,14 @@ export default function Dashboard() {
                 {user?.id === 'admin' && stations.map(s => <option key={s.id} value={s.id}>{s.name.toUpperCase()}</option>)}
               </select>
             </div>
+            <div className={styles.quickReplies}>
+              {(user?.id === 'admin' ? ['Nouveau rapport ?', 'Unités en position', 'Fausse alerte', 'Annuler mission'] : ['Bien reçu', 'En route', 'Sur site', 'Besoin de renfort']).map(reply => (
+                <button type="button" key={reply} className={styles.btnQuickReply} onClick={() => setChatInput(reply)}>{reply}</button>
+              ))}
+            </div>
             <form onSubmit={sendMessage} className={styles.chatInputArea}>
               <input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Message tactique..." />
-              <button type="submit">→</button>
+              <button type="submit">📨</button>
             </form>
           </>
         )}

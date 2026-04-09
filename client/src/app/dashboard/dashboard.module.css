@@ -806,8 +806,8 @@
   position: absolute;
   bottom: 20px;
   right: 20px;
-  width: 320px;
-  height: 480px;
+  width: 380px;
+  height: 520px;
   background: var(--bg-panel);
   backdrop-filter: blur(24px);
   border: 1px solid var(--border-glass);
@@ -1103,9 +1103,35 @@
   padding: 0 16px;
   border-radius: 8px;
   font-weight: 900;
-  font-size: 11px;
+  font-size: 14px;
   cursor: pointer;
 }
+
+.quickReplies {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border-glass);
+  scrollbar-width: thin;
+}
+.quickReplies::-webkit-scrollbar { height: 4px; }
+.quickReplies::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+
+.btnQuickReply {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.btnQuickReply:hover { background: rgba(59, 130, 246, 0.3); color: white; }
 
 /* AUDIO BANNER */
 .audioBanner {
