@@ -247,7 +247,7 @@ export default function Dashboard() {
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || !socketRef.current) return;
-    socketRef.current.emit('send_message', { sender_id: user?.id, sender_name: user?.name, recipient_id: chatRecipient, text: chatInput });
+    socketRef.current.emit('send_message', { sender_id: user?.id, sender_name: user?.name, recipient_id: chatRecipient, content: chatInput });
     setChatInput('');
   };
 
@@ -732,11 +732,11 @@ export default function Dashboard() {
               {messages.map((m, i) => (
                 <div key={i} className={`${styles.messageBubble} ${m.sender_id === user?.id ? styles.mine : ''}`}>
                   <div className={styles.msgHeader}>
-                    <span className={styles.msgSender}>{m.sender_id === 'admin' ? 'QG CENTRAL' : m.sender_name}</span>
+                    <span className={styles.msgSender}>{m.sender_id === 'admin' ? 'QG CENTRAL' : (stations.find(s => s.id === m.sender_id)?.name || m.sender_name || 'INCONNU')}</span>
                     {m.recipient_id !== 'all' && <span className={styles.msgTag}>DIRECT</span>}
                   </div>
                   <p className={styles.msgText}>{m.content || m.text}</p>
-                  <span className={styles.msgTime}>{new Date(m.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className={styles.msgTime}>{m.timestamp ? new Date(m.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               ))}
               <div ref={chatEndRef} />
