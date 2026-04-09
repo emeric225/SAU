@@ -65,14 +65,16 @@ export const cleanInstruction = (text: string): string => {
 interface MapProps {
   stations?: any[]; alerts?: any[]; units?: any[];
   center?: [number,number]; selectedAlert?: any;
-  navigationActive?: boolean; speed?: number; heading?: number;
+  navigationActive?: boolean; isLiveUnitMode?: boolean;
+  selfUnitId?: string; speed?: number; heading?: number;
   onRouteDataReady?: (d:any)=>void;
 }
 
 export default function Map({
-  alerts=[], center=[5.3365,-4.0268],
-  selectedAlert, navigationActive=false,
-  speed=0, heading=0, onRouteDataReady,
+  stations=[], alerts=[], units=[],
+  center=[5.3365,-4.0268],
+  selectedAlert, navigationActive=false, isLiveUnitMode=false,
+  selfUnitId, speed=0, heading=0, onRouteDataReady,
 }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
