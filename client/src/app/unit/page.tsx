@@ -11,7 +11,9 @@ import { MissionBriefing } from './components/MissionBriefing';
 import { TacticalNav } from './components/TacticalNav';
 import { ReportModal } from './components/ReportModal';
 
-const UnitMap = dynamic(() => import('../../components/Map'), { ssr: false });
+import type { MapProps } from '../../components/Map';
+
+const UnitMap = dynamic<MapProps>(() => import('../../components/Map'), { ssr: false });
 
 const DEFAULT_CENTER: [number, number] = [5.3365, -4.0268];
 
