@@ -270,7 +270,7 @@ export default function TacticalMapEngine({
           <svg viewBox="0 0 100 100" style="width:100%;height:100%;filter:drop-shadow(0 0 12px #3b82f6);transition:transform 0.2s ease;">
             <path d="M50 5 L88 90 L50 70 L12 90 Z" fill="#3b82f6" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
           </svg>`;
-        markerVehicleRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+        markerVehicleRef.current = new maplibregl.Marker({ element: el, anchor: 'center', pitchAlignment: 'map', rotationAlignment: 'map' })
           .setLngLat(lngLat)
           .addTo(map);
       } else {
@@ -293,11 +293,11 @@ export default function TacticalMapEngine({
               animation:destPulse 1.2s ease-in-out infinite;
             ">🚨</div>
             <style>@keyframes destPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}</style>`;
-          markerDestRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+          markerDestRef.current = new maplibregl.Marker({ element: el, anchor: 'center', pitchAlignment: 'viewport', rotationAlignment: 'viewport' })
             .setLngLat([destLng, destLat])
             .addTo(map);
         } else {
-          markerDestRef.current.setLngLat([destLng, destLat]);
+           markerDestRef.current.setLngLat([destLng, destLat]);
         }
       } else if (markerDestRef.current && !navigationActive) {
         markerDestRef.current.remove();
@@ -316,20 +316,23 @@ export default function TacticalMapEngine({
         const curBearing = map.getBearing();
         const delta = ((targetBearing - curBearing + 540) % 360) - 180;
         const smoothBearing = curBearing + delta * 0.2;
-        if (svg) (svg as HTMLElement).style.transform = `rotate(${targetBearing - smoothBearing}deg)`;
+        if (svg) (svg as HTMLElement).style.transform = `rotate(0deg)`; // Using map alignment, so the icon rotates organically with the map bearing! Wait, `rotationAlignment: 'map'` aligns marker to the map grid. To face bearing, we just setRotation(targetBearing).
+        markerVehicleRef.current.setRotation(targetBearing);
+        
         if (isAutoCentered) {
           map.easeTo({
             center: lngLat,
             bearing: smoothBearing,
-            pitch: 55,
+            pitch: 45,
+            padding: { top: window.innerHeight * 0.4, bottom: 0, left: 0, right: 0 },
             zoom: (speed * 3.6) < 20 ? 19.5 : 18,
             duration: 600,
           });
         }
       } else {
-        if (svg) (svg as HTMLElement).style.transform = 'rotate(0deg)';
+        markerVehicleRef.current.setRotation(targetBearing); // keep pointing even not nav
         if (isAutoCentered) {
-          map.easeTo({ center: [center[1], center[0]], pitch: 0, bearing: 0, zoom: 16, duration: 800 });
+          map.easeTo({ center: [center[1], center[0]], pitch: 0, bearing: 0, zoom: 16, padding: {top:0, bottom:0, left:0, right:0}, duration: 800 });
         }
       }
 

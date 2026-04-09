@@ -161,6 +161,22 @@ export default function UnitTacticalPage() {
       setPendingAlert(missionData);
       playTacticalSiren('mission');
       showTacticalToast('🚨 NOUVELLE MISSION REÇUE !', 'error', 10000);
+      
+      if (Notification.permission === 'granted' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(reg => {
+          reg.showNotification(`🚨 NOUVELLE MISSION SAU : ${missionData.type?.toUpperCase() || 'URGENCE'}`, {
+            body: missionData.notes || 'Déploiement immédiat requis.',
+            icon: '/icons/icon-192x192.png',
+            badge: '/icons/icon-192x192.png',
+            vibrate: [200, 100, 200, 100, 200],
+            tag: 'sau-alert',
+            requireInteraction: true,
+            data: { url: '/unit' }
+          });
+        });
+      } else if (Notification.permission === 'granted') {
+        new Notification("🚨 NOUVELLE MISSION SAU", { body: missionData.type, icon: '/icons/icon-192x192.png' });
+      }
     });
     socket.on('unit_updated', (updatedUnit: any) => {
       if (updatedUnit.id === unitId) {
