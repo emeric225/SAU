@@ -63,6 +63,7 @@ export default function UnitInterface() {
     if (typeof window !== 'undefined' && 'wakeLock' in navigator) {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        console.log('[SAU] Wake Lock Active');
       } catch (e) { console.warn('[SAU] Wake Lock failed', e); }
     }
   }, []);
@@ -386,6 +387,17 @@ export default function UnitInterface() {
         showToast('✅ UNITÉ DISPONIBLE', 'success');
       }
     }
+  };
+
+  const handleAcceptMission = () => {
+    setMission(pendingMission);
+    localStorage.setItem('sau_unit_mission', JSON.stringify(pendingMission));
+    setPendingMission(null);
+    // Operational shortcut: instantly go 'en_route' when mission is accepted
+    updateStatus('en_route');
+    showToast('🚀 MISSION ACCEPTÉE — NAVIGATION ACTIVÉE', 'success');
+    playSiren('approach');
+    requestWakeLock();
   };
 
   const handleReportSubmit = async (e: React.FormEvent) => {

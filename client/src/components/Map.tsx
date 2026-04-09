@@ -171,29 +171,33 @@ export default function Map({
     // Dynamic Camera
     if (autoCenter) {
         let zoom = 16.5;
-        let b = 0;
+        let b = map.current.getBearing();
         let p = 0;
+        let targetBearing = 0;
 
         if (navigationActive) {
             p = 45;
             const kmh = speed * 3.6;
-            if (kmh < 15) zoom = 20;
+            if (kmh < 15) zoom = 20.5;
             else if (kmh < 40) zoom = 19;
-            else zoom = 17;
+            else zoom = 17.5;
 
-            // Rotation priorities: 1. Compass (heading) | 2. OSRM Step Geometry
             if (heading > 0) {
-                b = heading;
+                targetBearing = heading;
             } else if (route?.legs[0]?.steps[0]?.geometry?.coordinates?.length > 1) {
                 const s = route.legs[0].steps[0].geometry.coordinates;
-                b = bearing([s[0][1], s[0][0]], [s[1][1], s[1][0]]);
+                targetBearing = bearing([s[0][1], s[0][0]], [s[1][1], s[1][0]]);
             }
         }
+
+        // Smooth bearing interpolation
+        const diff = (targetBearing - b + 540) % 360 - 180;
+        const smoothB = b + diff * 0.15; // 0.15 = lissage
 
         map.current.easeTo({
             center: target,
             zoom: zoom,
-            bearing: b,
+            bearing: smoothB,
             pitch: p,
             duration: 800,
             easing: (t) => t
