@@ -81,18 +81,14 @@ function snapToRoad(gps: [number,number], coords: any[]): [number,number] {
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
-const VehicleIcon = (rot: number, enroute: boolean) => L.divIcon({
+const VehicleIcon = (rot: number) => L.divIcon({
   className: '',
-  html: `<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;position:relative;">
-    <div style="transform:rotate(${rot}deg);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
-      <svg width="40" height="40" viewBox="0 0 24 24" style="filter:drop-shadow(0 0 8px rgba(239,68,68,0.9));">
+  html: `<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;">
+    <div style="transform:rotate(${rot}deg);">
+      <svg width="40" height="40" viewBox="0 0 24 24" style="filter:drop-shadow(0 0 8px rgba(239,68,68,0.9));display:block;">
         <path d="M12 2L4 22L12 18L20 22L12 2Z" fill="#ef4444" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
       </svg>
     </div>
-    <div style="position:absolute;font-size:13px;pointer-events:none;">${enroute?'🚒':'📍'}</div>
-    ${enroute?`
-    <div style="position:absolute;top:2px;left:6px;width:6px;height:6px;background:#3b82f6;border-radius:50%;box-shadow:0 0 8px #3b82f6;animation:sf 0.4s infinite alternate;"></div>
-    <div style="position:absolute;top:2px;right:6px;width:6px;height:6px;background:#ef4444;border-radius:50%;box-shadow:0 0 8px #ef4444;animation:sf 0.4s 0.2s infinite alternate;"></div>`:''}
   </div>`,
   iconSize: [48,48], iconAnchor: [24,24],
 });
@@ -210,16 +206,16 @@ export default function Map({
   },[]);
 
   // ── Smooth position via RAF ────────────────────────────────────────────────
-  const markerRef   = useRef<any>(null);
-  const targetRef   = useRef<[number,number]>(center);
-  const lerpRef     = useRef<[number,number]>(center);
-  const prevGpsRef  = useRef<[number,number]>(center);
+  const markerRef    = useRef<any>(null);
+  const mapDivRef    = useRef<HTMLDivElement>(null); // direct DOM ref for rotation
+  const targetRef    = useRef<[number,number]>(center);
+  const lerpRef      = useRef<[number,number]>(center);
+  const prevGpsRef   = useRef<[number,number]>(center);
   const [lerpPos, setLerpPos] = useState<[number,number]>(center);
 
-  // ── Bearing state ─────────────────────────────────────────────────────────
+  // ── Bearing — only refs, NO state (avoids 60 re-renders/s) ───────────────
   const rawBearRef    = useRef(0);
   const smoothBearRef = useRef(0);
-  const [mapBear, setMapBear] = useState(0);
 
   // ── Misc state ────────────────────────────────────────────────────────────
   const [route,    setRoute]    = useState<any>(null);
@@ -262,7 +258,7 @@ export default function Map({
     targetRef.current=pos;
   },[center, isLiveUnitMode, navigationActive, route, heading, speed]);
 
-  // Single RAF loop: position LERP + bearing LERP
+  // Single RAF loop: position LERP + bearing LERP — direct DOM, no setState
   useEffect(()=>{
     let raf: number;
     let lastT=performance.now();
@@ -277,16 +273,23 @@ export default function Map({
         cur[0]+(tgt[0]-cur[0])*alpha,
         cur[1]+(tgt[1]-cur[1])*alpha,
       ];
-      const changed=Math.abs(next[0]-cur[0])>1e-9||Math.abs(next[1]-cur[1])>1e-9;
-      if(changed){
+      const moved=Math.abs(next[0]-cur[0])>1e-9||Math.abs(next[1]-cur[1])>1e-9;
+      if(moved){
         lerpRef.current=next;
         markerRef.current?.setLatLng(next);
-        setLerpPos([...next]);
+        setLerpPos([...next]); // triggers MapController pan
       }
 
-      // Bearing lerp
-      smoothBearRef.current=lerpAngle(smoothBearRef.current, rawBearRef.current, 0.1);
-      setMapBear(smoothBearRef.current);
+      // Bearing lerp — update DOM directly, no React re-render
+      const prev=smoothBearRef.current;
+      smoothBearRef.current=lerpAngle(prev, rawBearRef.current, 0.08);
+      const diff=Math.abs(smoothBearRef.current-prev);
+      if(diff>0.05 && mapDivRef.current){
+        const rot=-smoothBearRef.current; // negative = course-up
+        mapDivRef.current.style.transform=`rotate(${rot}deg)`;
+        // also update vehicle icon bearing (re-use setIcon on marker)
+        markerRef.current?.setIcon(VehicleIcon(smoothBearRef.current));
+      }
 
       raf=requestAnimationFrame(tick);
     };
@@ -312,13 +315,6 @@ export default function Map({
     catch{ return []; }
   },[center[0],center[1],selectedAlert?.id]);
 
-  // ── CSS rotation ──────────────────────────────────────────────────────────
-  // The map wrapper fills the screen exactly (position:absolute,inset:0).
-  // transformOrigin 50% 50% = center of viewport.
-  // MapController keeps vehicle at exact center (with OFFSET_PX shift).
-  // So CSS rotation pivot = vehicle position. Perfect course-up. ✓
-  const cssRot = navigationActive ? -mapBear : 0;
-
   return (
     <div className={styles.mapWrapper}>
 
@@ -332,13 +328,16 @@ export default function Map({
       )}
 
       {/* Map wrapper — rotates around screen center = vehicle position */}
-      <div style={{
-        position:'absolute', inset:0,
-        transform:`rotate(${cssRot}deg)`,
-        transformOrigin:'50% 50%',
-        transition: navigationActive ? 'transform 0.3s linear' : 'none',
-        willChange:'transform',
-      }}>
+      {/* transform set initially here; RAF updates it directly via mapDivRef */}
+      <div
+        ref={mapDivRef}
+        style={{
+          position:'absolute', inset:0,
+          transform:'rotate(0deg)',
+          transformOrigin:'50% 50%',
+          willChange:'transform',
+        }}
+      >
         <MapContainer center={center} zoom={17} scrollWheelZoom={false} zoomControl={false} className={styles.mapContainerMain}>
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO"/>
 
@@ -364,9 +363,14 @@ export default function Map({
             </Marker>
           ))}
 
-          <Marker position={center} ref={markerRef} icon={VehicleIcon(mapBear, navigationActive)} zIndexOffset={1000}/>
+          <Marker
+            position={center}
+            ref={markerRef}
+            icon={VehicleIcon(0)}
+            zIndexOffset={1000}
+          />
           {units.filter(u=>u.id!==selfUnitId).map(u=>(
-            <Marker key={u.id} position={[u.lat,u.lng]} icon={VehicleIcon(0,false)}/>
+            <Marker key={u.id} position={[u.lat,u.lng]} icon={VehicleIcon(0)}/>
           ))}
         </MapContainer>
       </div>
