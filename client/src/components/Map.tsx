@@ -39,16 +39,20 @@ function snap(p: [number,number], a: [number,number], b: [number,number]): [numb
 
 interface MapProps {
     center: [number, number];
+    stations?: any[];
     alerts?: any[];
+    units?: any[];
     selectedAlert?: any;
     navigationActive?: boolean;
+    isLiveUnitMode?: boolean;
+    selfUnitId?: string;
     speed?: number;
     heading?: number;
     onRouteDataReady?: (d: any) => void;
 }
 
 export default function Map({
-    center, alerts=[], selectedAlert, navigationActive=false, speed=0, heading=0, onRouteDataReady
+    center, stations=[], alerts=[], units=[], selectedAlert, navigationActive=false, isLiveUnitMode=false, selfUnitId='', speed=0, heading=0, onRouteDataReady
 }: MapProps) {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<maplibregl.Map | null>(null);
@@ -177,7 +181,18 @@ export default function Map({
             const svg = vMarker.current.getElement().querySelector('svg') as HTMLElement;
             if (svg) svg.style.transform = `rotate(0deg)`;
         }
-    }, [center, speed, heading, navigationActive, route, autoCenter]);
+
+        // Stations & Alerts Sync
+        stations.forEach(s => {
+            const id = `st-${s.id}`;
+            if (!map.current!.isStyleLoaded()) return;
+            // Simplified: only add if not exists
+            if (mapContainer.current?.querySelector(`.st-${s.id}`)) return;
+            const el = document.createElement('div'); el.className = `st-${s.id}`;
+            el.innerHTML = '<div style="background:#3b82f6;width:24px;height:24px;border-radius:6px;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,0.5)">🏠</div>';
+            new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(map.current!);
+        });
+    }, [center, speed, heading, navigationActive, route, autoCenter, alerts, stations]);
 
     return (
         <div className={styles.mapWrapper}>
