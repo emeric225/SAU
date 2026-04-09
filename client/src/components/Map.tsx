@@ -288,8 +288,7 @@ export default function Map({
       if(diff>0.05 && mapDivRef.current){
         const rot=-smoothBearRef.current; // negative = course-up
         mapDivRef.current.style.transform=`rotate(${rot}deg)`;
-        // also update vehicle icon bearing (re-use setIcon on marker)
-        markerRef.current?.setIcon(VehicleIcon(smoothBearRef.current));
+        // icon is a static dot — no setIcon needed
       }
 
       raf=requestAnimationFrame(tick);
