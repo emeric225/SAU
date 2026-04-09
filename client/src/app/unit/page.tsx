@@ -5,7 +5,6 @@ import NextDynamic from 'next/dynamic';
 import { io, Socket } from 'socket.io-client';
 import styles from './unit.module.css';
 
-// Tactical Components
 import { UnitHeader } from './components/UnitHeader';
 import { MissionBriefing } from './components/MissionBriefing';
 import { TacticalNav } from './components/TacticalNav';
@@ -17,8 +16,6 @@ export const dynamic = 'force-dynamic';
 
 const UnitMap = NextDynamic<any>(() => import('../../components/Map'), { ssr: false });
 
-const DEFAULT_TACTICAL_CENTER: [number, number] = [5.3365, -4.0268];
-
 interface TacticalToast {
   id: string;
   message: string;
@@ -26,20 +23,17 @@ interface TacticalToast {
 }
 
 export default function UnitTacticalPage() {
-  // ─── States (Verbose Names) ──────────────────────────────────────────────────
   const [tacticalUnit, setTacticalUnit] = useState<any>(null);
   const [activeMission, setActiveMission] = useState<any>(null);
   const [pendingAlert, setPendingAlert] = useState<any>(null);
   const [tacticalUnitId, setTacticalUnitId] = useState('');
   const [tacticalGpsPos, setTacticalGpsPos] = useState<[number, number] | null>(null);
-  const [isTacticalGpsLocked, setIsTacticalGpsLocked] = useState(false);
   const [tacticalRouteInfo, setTacticalRouteInfo] = useState<any>(null);
   const [isTacticalAudioActive, setIsTacticalAudioActive] = useState(false);
   const [isTacticalShowingReport, setIsTacticalShowingReport] = useState(false);
-  const [isTacticalOnlineStatus, setIsTacticalOnlineStatus] = useState(true);
-  const [isTacticalSyncing, setIsTacticalSyncing] = useState(false);
+  const [isTacticalOnlineStatus] = useState(true);
+  const [isTacticalSyncing] = useState(false);
   const [isTacticalLoading, setIsTacticalLoading] = useState(false);
-  const [tacticalRetryCounter, setTacticalRetryCounter] = useState(0);
   const [isTacticalServerWaking, setIsTacticalServerWaking] = useState(false);
   const [tacticalToasts, setTacticalToasts] = useState<TacticalToast[]>([]);
   const [isTacticalSocketConnected, setIsTacticalSocketConnected] = useState(false);
@@ -49,96 +43,288 @@ export default function UnitTacticalPage() {
   const [tacticalCompassHeading, setTacticalCompassHeading] = useState(0);
   const [viewingTacticalPhoto, setViewingTacticalPhoto] = useState<string | null>(null);
 
-  // ─── Refs ────────────────────────────────────────────────────────────────────
-  const tacticalGpsLockedRef = useRef(false);
+  const tacticalGpsWatchRef = useRef<number | null>(null);
   const tacticalAudioCtxRef = useRef<AudioContext | null>(null);
   const tacticalWakeLockRef = useRef<any>(null);
   const tacticalSocketRef = useRef<Socket | null>(null);
   const tacticalCompassRef = useRef(0);
+  const isTacticalAudioActiveRef = useRef(false);
 
-  // ─── Core Logic ──────────────────────────────────────────────────────────────
+  // Sync ref avec state pour éviter les stale closures dans les listeners socket
+  useEffect(() => {
+    isTacticalAudioActiveRef.current = isTacticalAudioActive;
+  }, [isTacticalAudioActive]);
+
+  // ─── Toasts ──────────────────────────────────────────────────────────────────
   const showTacticalToast = useCallback((msg: string, type: TacticalToast['type'] = 'info', dur = 4000) => {
-    const tid = Date.now().toString();
-    setTacticalToasts(p => [...p, { id: tid, message: msg, type }]);
-    setTimeout(() => setTacticalToasts(p => p.filter(t => t.id !== tid)), dur);
+    const tid = `${Date.now()}_${Math.random()}`;
+    setTacticalToasts(prev => [...prev, { id: tid, message: msg, type }]);
+    setTimeout(() => setTacticalToasts(prev => prev.filter(t => t.id !== tid)), dur);
   }, []);
 
+  // ─── Audio ───────────────────────────────────────────────────────────────────
   const playTacticalNavBeep = useCallback(() => {
-    if (!tacticalAudioCtxRef.current || !isTacticalAudioActive) return;
+    const ctx = tacticalAudioCtxRef.current;
+    if (!ctx || !isTacticalAudioActiveRef.current) return;
     try {
-      const ctx = tacticalAudioCtxRef.current;
       if (ctx.state === 'suspended') ctx.resume();
-      const t = ctx.currentTime;
+      const now = ctx.currentTime;
       const osc = ctx.createOscillator();
-      const g = ctx.createGain();
+      const gainNode = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(800, t);
-      osc.frequency.exponentialRampToValueAtTime(1200, t + 0.1);
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.3, t + 0.05);
-      g.gain.linearRampToValueAtTime(0, t + 0.2);
-      osc.connect(g); g.connect(ctx.destination);
-      osc.start(t); osc.stop(t + 0.2);
-    } catch (e) { console.error('Audio Error', e); }
-  }, [isTacticalAudioActive]);
+      osc.frequency.setValueAtTime(800, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05);
+      gainNode.gain.linearRampToValueAtTime(0, now + 0.2);
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } catch (err) { console.error('[Audio] beep error', err); }
+  }, []);
 
   const playTacticalSiren = useCallback((mode: 'mission' | 'approach' = 'mission') => {
-    if (!tacticalAudioCtxRef.current || !isTacticalAudioActive) return;
+    const ctx = tacticalAudioCtxRef.current;
+    if (!ctx || !isTacticalAudioActiveRef.current) return;
     try {
-      const ctx = tacticalAudioCtxRef.current;
       if (ctx.state === 'suspended') ctx.resume();
-      const dur = mode === 'mission' ? 8 : 3;
-      const freq = mode === 'mission' ? [600, 900] : [800, 1200];
-      let c = 0;
-      const iter = setInterval(() => {
-        const t = ctx.currentTime;
+      const totalBeeps = mode === 'mission' ? 16 : 6;
+      const freqLow = mode === 'mission' ? 600 : 800;
+      const freqHigh = mode === 'mission' ? 900 : 1200;
+      let count = 0;
+      const interval = setInterval(() => {
+        const now = ctx.currentTime;
         const osc = ctx.createOscillator();
-        const g = ctx.createGain();
+        const gainNode = ctx.createGain();
         osc.type = 'square';
-        osc.frequency.setValueAtTime(c % 2 === 0 ? freq[0] : freq[1], t);
-        g.gain.setValueAtTime(0.2, t);
-        g.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
-        osc.connect(g); g.connect(ctx.destination);
-        osc.start(t); osc.stop(t + 0.5);
-        c++;
-        if (c >= dur * 2) clearInterval(iter);
+        osc.frequency.setValueAtTime(count % 2 === 0 ? freqLow : freqHigh, now);
+        gainNode.gain.setValueAtTime(0.2, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        osc.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.5);
+        count++;
+        if (count >= totalBeeps) clearInterval(interval);
       }, 500);
-    } catch (e) { console.error('Siren Error', e); }
-  }, [isTacticalAudioActive]);
+    } catch (err) { console.error('[Audio] siren error', err); }
+  }, []);
 
   useEffect(() => {
-    const h = () => { if (isTacticalAudioActive) playTacticalNavBeep(); };
-    window.addEventListener('sau-nav-instruction', h);
-    return () => window.removeEventListener('sau-nav-instruction', h);
-  }, [isTacticalAudioActive, playTacticalNavBeep]);
+    const handleNavEvent = () => playTacticalNavBeep();
+    window.addEventListener('sau-nav-instruction', handleNavEvent);
+    return () => window.removeEventListener('sau-nav-instruction', handleNavEvent);
+  }, [playTacticalNavBeep]);
 
-  // ─── Status Updates ──────────────────────────────────────────────────────────
-  const updateTacticalStatus = (status: string) => {
-    if (tacticalSocketRef.current && tacticalUnit) {
-      const p: any = { unitId: tacticalUnit.id, status, alertId: activeMission?.id };
-      if (status === 'en_route') p.transit_at = new Date().toISOString();
-      if (status === 'on_site') p.on_site_at = new Date().toISOString();
-      tacticalSocketRef.current.emit('unit_status_update', p);
-      setTacticalUnit({ ...tacticalUnit, status });
-      if (status === 'available') {
-        setActiveMission(null);
-        localStorage.removeItem('sau_unit_mission');
-        setTacticalRouteInfo(null);
-        showTacticalToast('✅ UNITÉ DISPONIBLE', 'success');
+  // ─── Status ───────────────────────────────────────────────────────────────────
+  const updateTacticalStatus = useCallback((status: string) => {
+    if (!tacticalSocketRef.current || !tacticalUnit) return;
+    const payload: any = { unitId: tacticalUnit.id, status, alertId: activeMission?.id };
+    if (status === 'en_route') payload.transit_at = new Date().toISOString();
+    if (status === 'on_site') payload.on_site_at = new Date().toISOString();
+    tacticalSocketRef.current.emit('unit_status_update', payload);
+    setTacticalUnit((prev: any) => ({ ...prev, status }));
+    if (status === 'available') {
+      setActiveMission(null);
+      setPendingAlert(null);
+      localStorage.removeItem('sau_unit_mission');
+      setTacticalRouteInfo(null);
+      showTacticalToast('✅ UNITÉ DISPONIBLE', 'success');
+    }
+  }, [tacticalUnit, activeMission, showTacticalToast]);
+
+  // ─── Socket ───────────────────────────────────────────────────────────────────
+  const initTacticalSocket = useCallback((unitId: string) => {
+    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:3008';
+    if (tacticalSocketRef.current) tacticalSocketRef.current.disconnect();
+    const socket = io(serverUrl, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 2000,
+      reconnectionAttempts: 10,
+    });
+    tacticalSocketRef.current = socket;
+    socket.emit('join_room', unitId);
+    socket.on('connect', () => {
+      setIsTacticalSocketConnected(true);
+      socket.emit('join_room', unitId);
+      showTacticalToast('📡 LIAISON OK', 'success', 2000);
+    });
+    socket.on('disconnect', () => {
+      setIsTacticalSocketConnected(false);
+      showTacticalToast('⚠️ LIAISON PERDUE — RECONNEXION...', 'warning');
+    });
+    socket.on('mission_received', (missionData: any) => {
+      setPendingAlert(missionData);
+      playTacticalSiren('mission');
+      showTacticalToast('🚨 NOUVELLE MISSION REÇUE !', 'error', 10000);
+    });
+    socket.on('unit_updated', (updatedUnit: any) => {
+      if (updatedUnit.id === unitId) {
+        setTacticalUnit((prev: any) => ({ ...prev, status: updatedUnit.status }));
       }
+    });
+  }, [showTacticalToast, playTacticalSiren]);
+
+  // ─── Wake Lock ────────────────────────────────────────────────────────────────
+  const requestWakeLock = useCallback(async () => {
+    if (typeof window === 'undefined' || !('wakeLock' in navigator)) return;
+    try {
+      tacticalWakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+    } catch (err) { console.warn('[WakeLock] failed', err); }
+  }, []);
+
+  // ─── Auth ─────────────────────────────────────────────────────────────────────
+  const attemptTacticalLogin = async (unitId: string) => {
+    if (!unitId.trim()) return;
+    try {
+      setIsTacticalLoading(true);
+      setIsTacticalServerWaking(true);
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stationId: unitId }),
+      });
+      const data = await response.json();
+      if (data.success && data.isUnit) {
+        setTacticalUnit(data.station);
+        localStorage.setItem('sau_unit', JSON.stringify(data.station));
+        if (data.currentMission) {
+          setActiveMission(data.currentMission);
+          localStorage.setItem('sau_unit_mission', JSON.stringify(data.currentMission));
+        }
+        initTacticalSocket(data.station.id);
+        requestWakeLock();
+        showTacticalToast(`✅ CONNECTÉ : ${data.station.name}`, 'success');
+      } else {
+        showTacticalToast('❌ ID UNITÉ INVALIDE', 'error');
+      }
+    } catch (err) {
+      showTacticalToast('⚠️ ERREUR RÉSEAU — RÉESSAYEZ', 'error');
+    } finally {
+      setIsTacticalLoading(false);
+      setIsTacticalServerWaking(false);
     }
   };
 
-  // ─── Install Logic ───────────────────────────────────────────────────────────
+  // ─── Session Recovery ─────────────────────────────────────────────────────────
   useEffect(() => {
-    const h = (e: any) => {
-      e.preventDefault();
-      setTacticalDeferredPrompt(e);
-      showTacticalToast('📥 APPLICATION DISPONIBLE', 'info', 5000);
+    const savedSession = localStorage.getItem('sau_unit');
+    if (!savedSession) return;
+    try {
+      const unitData = JSON.parse(savedSession);
+      setIsTacticalLoading(true);
+      fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stationId: unitData.id }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.isUnit) {
+            setTacticalUnit(data.station);
+            if (data.currentMission) {
+              setActiveMission(data.currentMission);
+            } else {
+              const savedMission = localStorage.getItem('sau_unit_mission');
+              if (savedMission) setActiveMission(JSON.parse(savedMission));
+            }
+            initTacticalSocket(data.station.id);
+            requestWakeLock();
+          } else {
+            localStorage.removeItem('sau_unit');
+          }
+        })
+        .catch(() => showTacticalToast('⚠️ MODE HORS-LIGNE', 'warning'))
+        .finally(() => setIsTacticalLoading(false));
+    } catch {
+      localStorage.removeItem('sau_unit');
+    }
+  }, [initTacticalSocket, requestWakeLock, showTacticalToast]);
+
+  // ─── GPS ──────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!tacticalUnit) return;
+    if (tacticalGpsWatchRef.current !== null) {
+      navigator.geolocation.clearWatch(tacticalGpsWatchRef.current);
+    }
+    tacticalGpsWatchRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, heading, speed } = position.coords;
+        setTacticalGpsPos([latitude, longitude]);
+        setTacticalCurrentSpeed(speed || 0);
+        if (heading !== null) setTacticalGpsHeading(heading);
+        // Heartbeat GPS vers serveur
+        tacticalSocketRef.current?.emit('unit_location_update', {
+          id: tacticalUnit.id,
+          lat: latitude,
+          lng: longitude,
+          heading: tacticalCompassRef.current || heading || 0,
+          speed: speed || 0,
+          status: tacticalUnit.status,
+        });
+      },
+      (err) => console.warn('[GPS] Error', err.message),
+      { enableHighAccuracy: true, maximumAge: 2000 }
+    );
+    return () => {
+      if (tacticalGpsWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(tacticalGpsWatchRef.current);
+        tacticalGpsWatchRef.current = null;
+      }
     };
-    window.addEventListener('beforeinstallprompt', h);
-    return () => window.removeEventListener('beforeinstallprompt', h);
+  }, [tacticalUnit?.id]);
+
+  // ─── Boussole ────────────────────────────────────────────────────────────────
+  const triggerTacticalCompassActivation = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const handleOrientation = (event: DeviceOrientationEvent) => {
+      const iosHeading = (event as any).webkitCompassHeading;
+      let degrees: number;
+      if (iosHeading !== undefined && iosHeading !== null) {
+        degrees = iosHeading;
+      } else if (event.alpha !== null) {
+        degrees = (360 - event.alpha) % 360;
+      } else return;
+      tacticalCompassRef.current = degrees;
+      setTacticalCompassHeading(degrees);
+    };
+    const startListening = () => {
+      window.addEventListener('deviceorientation', handleOrientation, true);
+      showTacticalToast('🧭 Boussole activée', 'success', 2000);
+    };
+    const DevOrEvt = DeviceOrientationEvent as any;
+    if (typeof DevOrEvt.requestPermission === 'function') {
+      DevOrEvt.requestPermission()
+        .then((result: string) => { if (result === 'granted') startListening(); })
+        .catch(() => startListening());
+    } else {
+      startListening();
+    }
   }, [showTacticalToast]);
+
+  const handleFullTacticalActivation = useCallback(() => {
+    if (!tacticalAudioCtxRef.current) {
+      tacticalAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (tacticalAudioCtxRef.current.state === 'suspended') {
+      tacticalAudioCtxRef.current.resume();
+    }
+    setIsTacticalAudioActive(true);
+    triggerTacticalCompassActivation();
+    showTacticalToast('🔊 SON TACTIQUE ACTIVÉ', 'success', 2000);
+  }, [triggerTacticalCompassActivation, showTacticalToast]);
+
+  // ─── PWA Install ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleInstallPrompt = (event: any) => {
+      event.preventDefault();
+      setTacticalDeferredPrompt(event);
+    };
+    window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
+  }, []);
 
   const handleTacticalInstall = async () => {
     if (!tacticalDeferredPrompt) return;
@@ -147,136 +333,125 @@ export default function UnitTacticalPage() {
     if (outcome === 'accepted') setTacticalDeferredPrompt(null);
   };
 
-  // ─── Auth ─────────────────────────────────────────────────────────────────────
-  const attemptTacticalLogin = async (id: string) => {
-    try {
-      setIsTacticalLoading(true);
-      const r = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: id }),
-      });
-      const d = await r.json();
-      if (d.success && d.isUnit) {
-        setTacticalUnit(d.station);
-        if (d.currentMission) setActiveMission(d.currentMission);
-        localStorage.setItem('sau_unit', JSON.stringify(d.station));
-        initTacticalSocket(d.station.id);
-        return true;
-      }
-      return false;
-    } catch (e) { return false; } finally { setIsTacticalLoading(false); }
-  };
-
-  const initTacticalSocket = (id: string) => {
-    const url = process.env.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:3008';
-    if (tacticalSocketRef.current) tacticalSocketRef.current.disconnect();
-    const s = io(url, { transports: ['websocket', 'polling'] });
-    tacticalSocketRef.current = s;
-    s.emit('join_room', id);
-    s.on('connect', () => setIsTacticalSocketConnected(true));
-    s.on('disconnect', () => setIsTacticalSocketConnected(false));
-    s.on('mission_received', (m: any) => {
-      setPendingAlert(m);
-      if (isTacticalAudioActive) playTacticalSiren('mission');
-      showTacticalToast('🚨 NOUVELLE MISSION DÉTECTÉE !', 'error', 10000);
-    });
-    s.on('unit_updated', (u: any) => {
-      if (u.id === id) setTacticalUnit((p: any) => ({ ...p, status: u.status }));
-    });
-  };
-
+  // ─── Logout ───────────────────────────────────────────────────────────────────
   const handleTacticalLogout = () => {
-    localStorage.removeItem('sau_unit'); localStorage.removeItem('sau_unit_mission');
+    localStorage.removeItem('sau_unit');
+    localStorage.removeItem('sau_unit_mission');
     tacticalSocketRef.current?.disconnect();
-    setTacticalUnit(null); setActiveMission(null); setTacticalUnitId(''); setTacticalGpsPos(null);
+    if (tacticalGpsWatchRef.current !== null) {
+      navigator.geolocation.clearWatch(tacticalGpsWatchRef.current);
+      tacticalGpsWatchRef.current = null;
+    }
+    setTacticalUnit(null);
+    setActiveMission(null);
+    setPendingAlert(null);
+    setTacticalUnitId('');
+    setTacticalGpsPos(null);
+    setTacticalRouteInfo(null);
   };
 
-  // ─── Compass ──────────────────────────────────────────────────────────────────
-  const triggerTacticalCompassActivation = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    const h = (e: DeviceOrientationEvent) => {
-      const hI = (e as any).webkitCompassHeading;
-      let d: number;
-      if (hI !== undefined && hI !== null) d = hI;
-      else if (e.alpha !== null) d = (360 - e.alpha) % 360;
-      else return;
-      tacticalCompassRef.current = d;
-      setTacticalCompassHeading(d);
+  // ─── Report ───────────────────────────────────────────────────────────────────
+  const handleReportSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const form = event.target as HTMLFormElement;
+    const reportPayload = {
+      actions: (form as any).actions?.value,
+      conclusion: (form as any).conclusion?.value,
+      victimes: (form as any).victimes?.value,
+      timestamp: new Date().toISOString(),
     };
-    const start = () => {
-      window.addEventListener('deviceorientation', h, true);
-      showTacticalToast('🧭 Boussole calibrée', 'success', 2000);
-    };
-    const DOE = (DeviceOrientationEvent as any);
-    if (typeof DOE.requestPermission === 'function') {
-      DOE.requestPermission().then((s: string) => { if (s === 'granted') start(); });
-    } else start();
-  }, [showTacticalToast]);
-
-  const handleFullTacticalActivation = useCallback(() => {
-     if (!tacticalAudioCtxRef.current) {
-       tacticalAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-     }
-     if (tacticalAudioCtxRef.current.state === 'suspended') tacticalAudioCtxRef.current.resume();
-     setIsTacticalAudioActive(true);
-     triggerTacticalCompassActivation();
-  }, [triggerTacticalCompassActivation]);
-
-  // ─── GPS Tracking ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!tacticalUnit || !tacticalSocketRef.current) return;
-    const wId = navigator.geolocation.watchPosition((p) => {
-      const lat = p.coords.latitude, lng = p.coords.longitude;
-      setTacticalGpsPos([lat, lng]);
-      setTacticalCurrentSpeed(p.coords.speed || 0);
-      if (p.coords.heading !== null) setTacticalGpsHeading(p.coords.heading);
-      if (!tacticalGpsLockedRef.current) { tacticalGpsLockedRef.current = true; setIsTacticalGpsLocked(true); }
-      
-      // Heartbeat
-      tacticalSocketRef.current?.emit('unit_location_update', {
-        id: tacticalUnit.id, lat, lng,
-        heading: tacticalCompassRef.current || p.coords.heading || 0,
-        speed: p.coords.speed || 0,
-        status: tacticalUnit.status
+    try {
+      showTacticalToast('⏳ Transmission en cours...', 'info');
+      const response = await fetch(`/api/alerts/${activeMission?.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'resolved', report: reportPayload, resolved_at: new Date().toISOString() }),
       });
-    }, null, { enableHighAccuracy: true });
-    return () => navigator.geolocation.clearWatch(wId);
-  }, [tacticalUnit]);
+      if (response.ok) {
+        updateTacticalStatus('available');
+        setIsTacticalShowingReport(false);
+        showTacticalToast('✅ BILAN TRANSMIS', 'success');
+      } else {
+        showTacticalToast('❌ ERREUR DE TRANSMISSION', 'error');
+      }
+    } catch {
+      updateTacticalStatus('available');
+      setIsTacticalShowingReport(false);
+    }
+  };
 
-  // ─── Rendering ────────────────────────────────────────────────────────────────
+  // ─── LOGIN VIEW ───────────────────────────────────────────────────────────────
   if (!tacticalUnit) {
     return (
       <div className={styles.unitContainer}>
-          <div className={styles.loginContainer}>
-             <div className={styles.loginCard}>
-                <div className={styles.logo}>SAU</div>
-                <h1 className={styles.loginTitle}>TERMINAL TACTIQUE</h1>
-                <input 
-                  type="text" 
-                  autoFocus 
-                  placeholder="ID Unité" 
-                  className={styles.loginInput}
-                  value={tacticalUnitId} 
-                  onChange={e => setTacticalUnitId(e.target.value)}
-                  onKeyPress={e => e.key === 'Enter' && attemptTacticalLogin(tacticalUnitId)}
-                />
-                <button 
-                  className={styles.combatBtnXxl} 
-                  style={{marginTop: 20}}
-                  onClick={() => attemptTacticalLogin(tacticalUnitId)}
-                >
-                  CONNECTION
-                </button>
-             </div>
+        {/* Toasts visibles même sur l'écran de login */}
+        <div className={styles.toastContainer}>
+          {tacticalToasts.map(toast => (
+            <div key={toast.id} className={`${styles.toast} ${styles[`toast_${toast.type}`]}`}>
+              {toast.message}
+            </div>
+          ))}
+        </div>
+        <div className={styles.loginContainer}>
+          <div className={styles.loginCard}>
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <div className={styles.logo}>SAU</div>
+              <div className={styles.logoPulse} />
+            </div>
+            <h1 className={styles.loginTitle}>TERMINAL TACTIQUE</h1>
+            <p className={styles.loginSub}>Identification force d&apos;intervention</p>
+            {isTacticalServerWaking && (
+              <div className={styles.serverWakeAlert}>
+                <div className={styles.serverWakeSpinner} />
+                <div>
+                  <div className={styles.serverWakeTitle}>CONNEXION AU SERVEUR...</div>
+                  <div className={styles.serverWakeSubtitle}>Veuillez patienter</div>
+                </div>
+              </div>
+            )}
+            <input
+              autoFocus
+              type="text"
+              placeholder="ID Unité (ex: u1)"
+              className={styles.loginInput}
+              value={tacticalUnitId}
+              onChange={e => setTacticalUnitId(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && attemptTacticalLogin(tacticalUnitId)}
+              disabled={isTacticalLoading}
+            />
+            <button
+              className={styles.combatBtnXxl}
+              style={{
+                marginTop: 20,
+                backgroundColor: '#3b82f6',
+                color: '#fff',
+                opacity: isTacticalLoading ? 0.6 : 1,
+              }}
+              onClick={() => attemptTacticalLogin(tacticalUnitId)}
+              disabled={isTacticalLoading}
+            >
+              {isTacticalLoading ? '⏳ CONNEXION...' : '🔐 SE CONNECTER'}
+            </button>
           </div>
+        </div>
       </div>
     );
   }
 
+  // ─── MAIN TACTICAL VIEW ───────────────────────────────────────────────────────
   return (
     <div className={styles.unitContainer}>
-      <UnitHeader 
+      {/* Toasts */}
+      <div className={styles.toastContainer}>
+        {tacticalToasts.map(toast => (
+          <div key={toast.id} className={`${styles.toast} ${styles[`toast_${toast.type}`]}`}>
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <UnitHeader
         unit={tacticalUnit}
         socketConnected={isTacticalSocketConnected}
         isOnline={isTacticalOnlineStatus}
@@ -288,18 +463,25 @@ export default function UnitTacticalPage() {
         onInstall={handleTacticalInstall}
       />
 
-      <TacticalNav 
+      {/* Navigation Overlay (TacticalNav) — visible seulement en mission */}
+      <TacticalNav
         mission={activeMission}
         unitStatus={tacticalUnit.status}
         routeData={tacticalRouteInfo}
         onUpdateStatus={updateTacticalStatus}
         onShowReport={() => setIsTacticalShowingReport(true)}
-        getFormattedArrival={() => 'N/A'}
+        getFormattedArrival={() => {
+          if (!tacticalRouteInfo) return '--:--';
+          const arrival = new Date();
+          arrival.setMinutes(arrival.getMinutes() + Math.ceil(tacticalRouteInfo.durationMin));
+          return arrival.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        }}
       />
 
+      {/* Carte principale */}
       <main className={styles.mapArea}>
         {tacticalGpsPos ? (
-          <UnitMap 
+          <UnitMap
             center={tacticalGpsPos}
             alerts={activeMission ? [activeMission] : []}
             units={[tacticalUnit]}
@@ -310,26 +492,70 @@ export default function UnitTacticalPage() {
             onRouteDataReady={setTacticalRouteInfo}
           />
         ) : (
-          <div className={styles.gpsLoader}>LOCALISATION...</div>
+          <div className={styles.gpsLoader}>
+            <div className={styles.gpsSpinner} />
+            <strong>LOCALISATION GPS EN COURS...</strong>
+            <span style={{ color: '#64748b', fontSize: 13 }}>Autorisez la géolocalisation</span>
+          </div>
         )}
       </main>
 
+      {/* Fiche de mission en attente */}
       {pendingAlert && (
-          <MissionBriefing 
-            mission={pendingAlert}
-            routeData={tacticalRouteInfo}
-            onAccept={() => { setActiveMission(pendingAlert); setPendingAlert(null); updateTacticalStatus('en_route'); }}
-            onRefuse={() => setPendingAlert(null)}
-            onViewPhoto={p => setViewingTacticalPhoto(p)}
-          />
+        <MissionBriefing
+          mission={pendingAlert}
+          routeData={tacticalRouteInfo}
+          onAccept={() => {
+            setActiveMission(pendingAlert);
+            localStorage.setItem('sau_unit_mission', JSON.stringify(pendingAlert));
+            setPendingAlert(null);
+            updateTacticalStatus('en_route');
+            playTacticalSiren('approach');
+            showTacticalToast('🚀 MISSION ACCEPTÉE — EN ROUTE !', 'success');
+          }}
+          onRefuse={() => {
+            setPendingAlert(null);
+            showTacticalToast('Mission déclinée', 'warning');
+          }}
+          onViewPhoto={(photoUrl: string) => setViewingTacticalPhoto(photoUrl)}
+        />
       )}
 
+      {/* Modal rapport de clôture */}
       {isTacticalShowingReport && (
-          <ReportModal 
-            mission={activeMission}
-            onSubmit={(e:any) => { e.preventDefault(); updateTacticalStatus('available'); setIsTacticalShowingReport(false); }}
-            onCancel={() => setIsTacticalShowingReport(false)}
-          />
+        <ReportModal
+          mission={activeMission}
+          onSubmit={handleReportSubmit}
+          onCancel={() => setIsTacticalShowingReport(false)}
+        />
+      )}
+
+      {/* Viewer photo plein écran */}
+      {viewingTacticalPhoto && (
+        <div
+          className={styles.photoViewerOverlay}
+          onClick={() => setViewingTacticalPhoto(null)}
+        >
+          <div className={styles.photoViewerContent}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={viewingTacticalPhoto} alt="Photo de l'incident" />
+            <button
+              onClick={() => setViewingTacticalPhoto(null)}
+              style={{
+                marginTop: 20,
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                color: '#fff',
+                padding: '12px 32px',
+                borderRadius: 99,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              ✕ FERMER
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
