@@ -112,12 +112,17 @@ export default function UnitTacticalPage() {
   };
 
   // ─── ROUTES (OSRM) ─────────────────────────────────────────────────────────
+  const routeFetchedRef = useRef(false);
+
   useEffect(() => {
-    if (currentStatus !== 'en_route' || !activeMission || !position) {
+    if (currentStatus !== 'en_route') {
       setRouteGeoJSON(null);
       setRouteSteps([]);
+      routeFetchedRef.current = false;
       return;
     }
+
+    if (!activeMission || !position || routeFetchedRef.current) return;
 
     const { latitude, longitude, lat, lng, location } = activeMission;
     const destLat = Number(lat ?? latitude ?? location?.lat);
@@ -127,6 +132,7 @@ export default function UnitTacticalPage() {
 
     const url = `https://router.project-osrm.org/route/v1/driving/${position[1]},${position[0]};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&language=fr`;
     
+    routeFetchedRef.current = true;
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -134,9 +140,8 @@ export default function UnitTacticalPage() {
           setRouteGeoJSON(data.routes[0].geometry);
           setRouteSteps(data.routes[0].legs[0].steps);
         }
-      }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStatus, activeMission?.id]);
+      }).catch(() => { routeFetchedRef.current = false; });
+  }, [currentStatus, activeMission?.id, position]);
 
   // Handle Route Guidance Update
   useEffect(() => {
