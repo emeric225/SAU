@@ -232,24 +232,23 @@ function MapRecenter({ center, navigationActive, autoCenter, speed }: { center: 
   useEffect(() => {
     if (!autoCenter || !map) return;
 
-    let targetZoom = 15;
+    let targetZoom = 16;
     if (navigationActive) {
       const speedKmh = speed * 3.6;
-      if (speedKmh < 10) targetZoom = 19;
-      else if (speedKmh < 40) targetZoom = 18;
-      else if (speedKmh < 80) targetZoom = 16;
-      else targetZoom = 15;
+      if (speedKmh < 10) targetZoom = 20; // Zoom max +
+      else if (speedKmh < 40) targetZoom = 19;
+      else if (speedKmh < 80) targetZoom = 17;
+      else targetZoom = 16;
     } else {
-      targetZoom = 14;
+      targetZoom = 15;
     }
 
     if (map.getZoom() !== targetZoom) {
       map.setZoom(targetZoom, { animate: true });
     }
 
-    // Le centre parfait absolu. L'offset visuel est désormais géré par le wrapper CSS de la carte
-    // pour garantir que la rotation Leaflet pivote *exactement* sur le véhicule sans orbite désaxée.
-    map.panTo(center, { animate: true, duration: navigationActive ? 1.2 : 0.8, easeLinearity: 0.1 });
+    // Ciblage direct de la position lissée (center est ici vehiclePos qui est LERPed)
+    map.panTo(center, { animate: true, duration: 0.5, easeLinearity: 0.1 });
   }, [center, map, navigationActive, autoCenter, speed]);
 
   return null;
@@ -362,7 +361,7 @@ export default function Map({
     }
 
     targetPosRef.current = snappedPos;
-    setVehiclePos(snappedPos); // Triggers MapRecenter
+    // On ne met plus à jour vehiclePos ici directement pour laisser le LERP s'en occuper
     lastCenterUpdateRef.current = snappedPos;
   }, [center, isLiveUnitMode, navigationActive, route]);
 
@@ -388,6 +387,8 @@ export default function Map({
         if (markerRef.current) {
           markerRef.current.setLatLng(currentLerpPosRef.current);
         }
+        // Force le MapRecenter à suivre la position LERP pour un pivot mathématiquement stable
+        setVehiclePos(currentLerpPosRef.current); 
       }
 
       // Rotation LERP
@@ -457,11 +458,12 @@ export default function Map({
       {/* Auto-Rotating Oversized Map Container */}
       <div style={{
         position: 'absolute',
-        width: '200vmax', height: '200vmax',
+        width: '300vmax', height: '300vmax',
         top: '50%', left: '50%',
-        transform: `translate(-50%, calc(-50% + ${navigationActive ? '25vh' : '0vh'})) rotate(${mapRotation}deg)`,
+        // Shift map DOWN by 12vh to place vehicle at ~38% from bottom (above ETA bar)
+        transform: `translate(-50%, calc(-50% + ${navigationActive ? '12vh' : '0vh'})) rotate(${mapRotation}deg)`,
         transformOrigin: '50% 50%',
-        transition: 'transform 0.4s ease-out'
+        transition: 'transform 0.4s cubic-bezier(0.1, 0, 0.3, 1)'
       }}>
         <MapContainer center={center} zoom={14} scrollWheelZoom={true} zoomControl={false} className={styles.mapContainerMain}>
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO" />
