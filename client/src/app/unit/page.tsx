@@ -27,6 +27,7 @@ export default function UnitInterface() {
   const [unit, setUnit] = useState<any>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [mission, setMission] = useState<any>(null);
+  const [pendingMission, setPendingMission] = useState<any>(null);
   const [routeData, setRouteData] = useState<any>(null);
   const [showReport, setShowReport] = useState(false);
   const [gpsPos, setGpsPos] = useState<[number, number] | null>(null);

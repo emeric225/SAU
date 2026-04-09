@@ -54,7 +54,8 @@ export const cleanInstruction = (text: string): string => {
 interface MapProps {
   stations?: any[]; alerts?: any[]; units?: any[];
   center?: [number,number]; selectedAlert?: any;
-  navigationActive?: boolean; speed?: number; heading?: number;
+  navigationActive?: boolean; isLiveUnitMode?: boolean;
+  selfUnitId?: string; speed?: number; heading?: number;
   onRouteDataReady?: (d:any)=>void;
 }
 
