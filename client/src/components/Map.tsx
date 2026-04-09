@@ -83,12 +83,13 @@ function snapToRoad(gps: [number,number], coords: any[]): [number,number] {
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const VehicleIcon = (rot: number) => L.divIcon({
   className: '',
-  html: `<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;">
-    <div style="transform:rotate(${rot}deg);">
-      <svg width="40" height="40" viewBox="0 0 24 24" style="filter:drop-shadow(0 0 8px rgba(239,68,68,0.9));display:block;">
-        <path d="M12 2L4 22L12 18L20 22L12 2Z" fill="#ef4444" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-      </svg>
-    </div>
+  html: `<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;position:relative;">
+    <!-- Outer pulse ring -->
+    <div style="position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(239,68,68,0.2);animation:vp 1.5s ease-out infinite;"></div>
+    <!-- Mid ring -->
+    <div style="position:absolute;width:28px;height:28px;border-radius:50%;background:rgba(239,68,68,0.35);animation:vp 1.5s 0.5s ease-out infinite;"></div>
+    <!-- Core dot -->
+    <div style="position:absolute;width:16px;height:16px;border-radius:50%;background:#ef4444;border:2.5px solid #fff;box-shadow:0 0 12px rgba(239,68,68,0.9);"></div>
   </div>`,
   iconSize: [48,48], iconAnchor: [24,24],
 });
@@ -386,6 +387,7 @@ export default function Map({
         .leaflet-routing-container { display:none!important; }
         @keyframes sf { from{opacity:0.2}to{opacity:1;filter:brightness(1.5)} }
         @keyframes ap { 0%{transform:scale(1)}50%{transform:scale(1.1);opacity:0.8}100%{transform:scale(1)} }
+        @keyframes vp { 0%{transform:scale(0.6);opacity:0.8} 100%{transform:scale(1.8);opacity:0} }
       `}</style>
     </div>
   );
