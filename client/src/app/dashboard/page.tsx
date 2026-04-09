@@ -135,6 +135,9 @@ export default function Dashboard() {
     socket.on('connect', () => {
       setIsConnected(true);
       socket.emit('join_room', userData.id);
+      if (userData.id !== 'admin') {
+        fetch(`/api/stations/status/${userData.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'active' }) }).catch(e => console.error(e));
+      }
     });
     socket.on('disconnect', () => setIsConnected(false));
 
@@ -251,7 +254,15 @@ export default function Dashboard() {
     setChatInput('');
   };
 
-  const handleLogout = () => { localStorage.removeItem('sau_station'); window.location.href = '/login'; };
+  const handleLogout = async () => {
+    if (userRef.current?.id && userRef.current?.id !== 'admin') {
+      try {
+        await fetch(`/api/stations/status/${userRef.current.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'offline' }) });
+      } catch (e) { console.error('[Logout]', e); }
+    }
+    localStorage.removeItem('sau_station');
+    window.location.href = '/login';
+  };
   const toggleCrisisMode = () => { const n = !isCrisisMode; setIsCrisisMode(n); socketRef.current?.emit('toggle_crisis', n); };
 
   // ─── Filtres ──────────────────────────────────────────────────────────────────
