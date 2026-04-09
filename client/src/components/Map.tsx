@@ -40,9 +40,14 @@ export const getManeuverIcon = (type: string, mod: string) => {
 
 export const cleanInstruction = (text: string): string => {
   if (!text) return '';
-  let r = text.replace(/(Prenez la direction|Head|Se diriger vers le|Se diriger vers la|Direction|Vers)\s+(nord[-‑]?est|nord[-‑]?ouest|sud[-‑]?est|sud[-‑]?ouest|nord|sud|est|ouest)\s+(sur\s+)?(la\s+|le\s+)?/ig, 'CONTINUEZ SUR ');
-  r = r.replace(/Turn (left|right) onto /ig, (_,d) => d === 'left' ? 'TOURNEZ À GAUCHE SUR ' : 'TOURNEZ À DROITE SUR ');
-  r = r.replace(/Tournez à (gauche|droite) sur /ig, (_,d) => d==='gauche' ? 'TOURNEZ À GAUCHE SUR ' : 'TOURNEZ À DROITE SUR ');
+  // 1. Normalize apostrophes
+  let r = text.replace(/\u2019|\u0027/g, "'");
+  // 2. Remove cardinal directions (various OSRM formulations)
+  r = r.replace(/(Prenez la direction|Head|Se diriger vers (l'|le |la )|Direction|Vers (l'|le |la ))(nord[\-\u2011]?est|nord[\-\u2011]?ouest|sud[\-\u2011]?est|sud[\-\u2011]?ouest|nord|sud|est|ouest)\s*(sur\s*)?(la\s+|le\s+|l')?/ig, 'CONTINUEZ SUR ');
+  // 3. Translate left/right English
+  r = r.replace(/Turn (left|right) onto /ig, (_,d) => d==='left' ? 'TOURNEZ \u00c0 GAUCHE SUR ' : 'TOURNEZ \u00c0 DROITE SUR ');
+  // 4. Translate left/right French
+  r = r.replace(/Tournez \u00e0 (gauche|droite) sur /ig, (_,d) => d==='gauche' ? 'TOURNEZ \u00c0 GAUCHE SUR ' : 'TOURNEZ \u00c0 DROITE SUR ');
   return r.toUpperCase();
 };
 
@@ -317,9 +322,9 @@ export default function Map({
   return (
     <div className={styles.mapWrapper}>
 
-      {/* Guidance banner — counter-rotated so it stays readable */}
+      {/* Guidance banner — outside the rotating div, stays horizontal ✓ */}
       {navigationActive && guidance && (
-        <div className={styles.guidanceBanner} style={{ transform: `rotate(${-cssRot}deg)`, transformOrigin: 'center center' }}>
+        <div className={styles.guidanceBanner}>
           <div className={styles.guidanceIcon}>{guidance.icon}</div>
           <div className={styles.guidanceText}>{guidance.text} ({guidance.dist}M)</div>
           {!sigOk && <div className={styles.weakSignal}>SIG.</div>}
