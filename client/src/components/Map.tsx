@@ -139,10 +139,10 @@ export default function TacticalMapEngine({
       return;
     }
 
-    const destLat = selectedAlert.lat ?? selectedAlert.latitude ?? selectedAlert.location?.lat;
-    const destLng = selectedAlert.lng ?? selectedAlert.longitude ?? selectedAlert.location?.lng;
+    const destLat = Number(selectedAlert.lat ?? selectedAlert.latitude ?? selectedAlert.location?.lat);
+    const destLng = Number(selectedAlert.lng ?? selectedAlert.longitude ?? selectedAlert.location?.lng);
 
-    if (!destLat || !destLng) {
+    if (isNaN(destLat) || isNaN(destLng) || destLat === 0) {
       console.error('[Map] Alerte sans coordonnées valides :', JSON.stringify(selectedAlert));
       return;
     }
@@ -278,9 +278,9 @@ export default function TacticalMapEngine({
       }
 
       // -- Marqueur destination
-      const destLat = selectedAlert?.lat ?? selectedAlert?.latitude;
-      const destLng = selectedAlert?.lng ?? selectedAlert?.longitude;
-      if (navigationActive && destLat && destLng) {
+      const destLat = Number(selectedAlert?.lat ?? selectedAlert?.latitude ?? selectedAlert?.location?.lat);
+      const destLng = Number(selectedAlert?.lng ?? selectedAlert?.longitude ?? selectedAlert?.location?.lng);
+      if (navigationActive && !isNaN(destLat) && !isNaN(destLng) && destLat !== 0) {
         const destKey = selectedAlert?.id || 'dest';
         if (!markerDestRef.current) {
           const el = document.createElement('div');

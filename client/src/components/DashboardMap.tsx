@@ -85,9 +85,12 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
       });
 
       stations.forEach((station: any) => {
-        if (!station.lat || !station.lng) return;
+        const sLat = Number(station.lat ?? station.latitude ?? station.location?.lat);
+        const sLng = Number(station.lng ?? station.longitude ?? station.location?.lng);
+        if (isNaN(sLat) || isNaN(sLng) || sLat === 0) return;
+
         if (stationMarkersRef.current[station.id]) {
-          stationMarkersRef.current[station.id].setLngLat([station.lng, station.lat]);
+          stationMarkersRef.current[station.id].setLngLat([sLng, sLat]);
           return;
         }
         const el = document.createElement('div');
@@ -116,7 +119,7 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
           `);
 
         stationMarkersRef.current[station.id] = new maplibregl.Marker({ element: el })
-          .setLngLat([station.lng, station.lat])
+          .setLngLat([sLng, sLat])
           .setPopup(popup)
           .addTo(map);
       });
@@ -143,12 +146,15 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
       });
 
       alerts.forEach((alert: any) => {
-        if (!alert.lat || !alert.lng) return;
+        const aLat = Number(alert.lat ?? alert.latitude ?? alert.location?.lat);
+        const aLng = Number(alert.lng ?? alert.longitude ?? alert.location?.lng);
+        if (isNaN(aLat) || isNaN(aLng) || aLat === 0) return;
+
         const color = ALERT_COLORS[alert.type] || ALERT_COLORS.default;
         const isSelected = selectedAlert?.id === alert.id;
 
         if (alertMarkersRef.current[alert.id]) {
-          alertMarkersRef.current[alert.id].marker.setLngLat([alert.lng, alert.lat]);
+          alertMarkersRef.current[alert.id].marker.setLngLat([aLng, aLat]);
           const el = alertMarkersRef.current[alert.id].marker.getElement();
           el.style.transform = isSelected ? 'scale(1.3)' : 'scale(1)';
           return;
@@ -190,7 +196,7 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
           `);
 
         const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([alert.lng, alert.lat])
+          .setLngLat([aLng, aLat])
           .setPopup(popup)
           .addTo(map);
 
@@ -219,11 +225,14 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
       });
 
       units.forEach((unit: any) => {
-        if (!unit.lat || !unit.lng) return;
+        const uLat = Number(unit.lat ?? unit.latitude ?? unit.location?.lat);
+        const uLng = Number(unit.lng ?? unit.longitude ?? unit.location?.lng);
+        if (isNaN(uLat) || isNaN(uLng) || uLat === 0) return;
+
         const statusColor = unit.status === 'available' ? '#10b981' : unit.status === 'en_route' ? '#f59e0b' : '#e11d48';
 
         if (unitMarkersRef.current[unit.id]) {
-          unitMarkersRef.current[unit.id].setLngLat([unit.lng, unit.lat]);
+          unitMarkersRef.current[unit.id].setLngLat([uLng, uLat]);
           return;
         }
 
@@ -242,7 +251,7 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
         el.title = `${unit.name} — ${unit.status}`;
 
         unitMarkersRef.current[unit.id] = new maplibregl.Marker({ element: el })
-          .setLngLat([unit.lng, unit.lat])
+          .setLngLat([uLng, uLat])
           .addTo(map);
       });
     };
@@ -253,8 +262,13 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
   // ─── Focus sur l'alerte sélectionnée ─────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedAlert?.lat || !selectedAlert?.lng) return;
-    map.flyTo({ center: [selectedAlert.lng, selectedAlert.lat], zoom: 15, duration: 1000 });
+    
+    // Casting et fallback pour l'alerte sélectionnée
+    const cLat = Number(selectedAlert?.lat ?? selectedAlert?.latitude ?? selectedAlert?.location?.lat);
+    const cLng = Number(selectedAlert?.lng ?? selectedAlert?.longitude ?? selectedAlert?.location?.lng);
+    
+    if (!map || isNaN(cLat) || isNaN(cLng) || cLat === 0) return;
+    map.flyTo({ center: [cLng, cLat], zoom: 15, duration: 1000 });
     // Ouvrir le popup de l'alerte sélectionnée
     setTimeout(() => {
       const entry = alertMarkersRef.current[selectedAlert.id];
