@@ -1,8 +1,5 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'SAU - Système d\'Alerte d\'Urgence | Côte d\'Ivoire',
@@ -20,6 +17,7 @@ export const viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({
@@ -33,22 +31,8 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="theme-color" content="#060c1a" />
       </head>
-      <body className={inter.className}>
+      <body style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
         {children}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    function(registration) { console.log('ServiceWorker registration successful'); },
-                    function(err) { console.log('ServiceWorker registration failed: ', err); }
-                  );
-                });
-              }
-            `,
-          }}
-        />
       </body>
     </html>
   );
