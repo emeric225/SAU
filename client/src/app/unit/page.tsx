@@ -42,6 +42,7 @@ export default function UnitInterface() {
   const [socketConnected, setSocketConnected] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [speed, setSpeed] = useState(0);
+  const [heading, setHeading] = useState(0);
 
   // ─── Refs ────────────────────────────────────────────────────────────────────
   const gpsLockedRef = useRef(false);
@@ -256,6 +257,7 @@ export default function UnitInterface() {
         }
         setGpsPos([lat, lng]);
         setSpeed(speed);
+        if (heading !== null) setHeading(heading);
 
         // Logic check: approach alert
         if (mission && unit?.status === 'en_route') {
@@ -462,6 +464,7 @@ export default function UnitInterface() {
             center={gpsPos}
             isLiveUnitMode={true}
             speed={speed}
+            heading={heading}
             onRouteDataReady={onRouteDataReady}
           />
         ) : (

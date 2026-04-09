@@ -354,10 +354,15 @@ export default function Map({
       }
     }
 
-    const distForHeading = distanceMeters(prevPos, snappedPos);
-    if (distForHeading > 1.5) {
-      const bear = calcBearing(prevPos, snappedPos);
-      setRotation(bear);
+    // Utilisation prioritaire du heading GPS s'il est disponible et que le véhicule bouge
+    if (heading && heading > 0 && speed > 2) {
+      setRotation(heading);
+    } else {
+      const distForHeading = distanceMeters(prevPos, snappedPos);
+      if (distForHeading > 2) {
+        const bear = calcBearing(prevPos, snappedPos);
+        setRotation(bear);
+      }
     }
 
     targetPosRef.current = snappedPos;
@@ -391,8 +396,8 @@ export default function Map({
         setVehiclePos(currentLerpPosRef.current); 
       }
 
-      // Rotation LERP
-      rotationRef.current = lerpAngle(rotationRef.current, rotation, 0.1);
+      // Rotation LERP - Augmentation de la vitesse de suivi pour le heading
+      rotationRef.current = lerpAngle(rotationRef.current, rotation, 0.15);
       setSmoothRotation(rotationRef.current);
 
       rafId = requestAnimationFrame(step);
