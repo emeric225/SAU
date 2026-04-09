@@ -155,14 +155,20 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
 
         if (alertMarkersRef.current[alert.id]) {
           alertMarkersRef.current[alert.id].marker.setLngLat([aLng, aLat]);
-          const el = alertMarkersRef.current[alert.id].marker.getElement();
-          el.style.transform = isSelected ? 'scale(1.3)' : 'scale(1)';
+          const container = alertMarkersRef.current[alert.id].marker.getElement();
+          const innerEl = container.firstChild as HTMLDivElement;
+          if (innerEl) {
+            innerEl.style.transform = isSelected ? 'scale(1.3)' : 'scale(1)';
+          }
           return;
         }
 
-        const el = document.createElement('div');
-        el.style.cssText = `
-          width: 44px; height: 44px;
+        const container = document.createElement('div');
+        container.style.cssText = 'width:44px; height:44px; display:flex; align-items:center; justify-content:center;';
+
+        const inner = document.createElement('div');
+        inner.style.cssText = `
+          width: 100%; height: 100%;
           border-radius: 50%;
           border: 3px solid ${color};
           background: ${color}33;
@@ -172,6 +178,7 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
           cursor: pointer;
           transition: transform 0.2s;
           animation: alertPulse 1.5s infinite;
+          transform: ${isSelected ? 'scale(1.3)' : 'scale(1)'};
         `;
         // CSS animation inline via style tag
         if (!document.getElementById('sau-alert-anim')) {
@@ -182,8 +189,10 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
         }
 
         const icons: Record<string, string> = { fire: '🔥', medical: '🚑', accident: '🚗', security: '👮' };
-        el.innerHTML = icons[alert.type] || '🚨';
-        el.addEventListener('click', () => onAlertClick?.(alert));
+        inner.innerHTML = icons[alert.type] || '🚨';
+        inner.addEventListener('click', () => onAlertClick?.(alert));
+        
+        container.appendChild(inner);
 
         const popup = new maplibregl.Popup({ offset: 30, closeButton: false })
           .setHTML(`
@@ -195,7 +204,7 @@ export default function DashboardMap({ stations = [], alerts = [], units = [], s
             </div>
           `);
 
-        const marker = new maplibregl.Marker({ element: el })
+        const marker = new maplibregl.Marker({ element: container })
           .setLngLat([aLng, aLat])
           .setPopup(popup)
           .addTo(map);
