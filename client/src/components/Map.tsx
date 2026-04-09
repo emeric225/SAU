@@ -1,11 +1,15 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import styles from '../app/unit/unit.module.css';
 
-// ─── Utils ────────────────────────────────────────────────────────────────────
+// ─── Constants & Utils ────────────────────────────────────────────────────────
+const SOURCE_ROUTE = 'route-source';
+const LAYER_ROUTE_LINE = 'route-line';
+const LAYER_ROUTE_CASING = 'route-casing';
+
 export const getManeuverIcon = (type: string, mod: string) => {
   if (type === 'Straight') return '⬆️';
   if (type === 'Uturn')    return '🔄';
@@ -27,18 +31,12 @@ export const cleanInstruction = (text: string): string => {
   return r.toUpperCase();
 };
 
-function dist(p1: [number,number], p2: [number,number]): number {
-  const R=6371000, dLat=(p2[0]-p1[0])*Math.PI/180, dLon=(p2[1]-p1[1])*Math.PI/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(p1[0]*Math.PI/180)*Math.cos(p2[0]*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
-
 function bearing(p1: [number,number], p2: [number,number]): number {
   const dL=(p2[1]-p1[1])*Math.PI/180, la1=p1[0]*Math.PI/180, la2=p2[0]*Math.PI/180;
   return ((Math.atan2(Math.sin(dL)*Math.cos(la2), Math.cos(la1)*Math.sin(la2)-Math.sin(la1)*Math.cos(la2)*Math.cos(dL))*180/Math.PI)+360)%360;
 }
 
-// ─── Main Map Component ───────────────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 interface MapProps {
   stations?: any[]; alerts?: any[]; units?: any[];
   center?: [number,number]; selectedAlert?: any;
@@ -50,8 +48,8 @@ interface MapProps {
 export default function Map({
   stations=[], alerts=[], units=[],
   center=[5.3365,-4.0268],
-  selectedAlert, navigationActive=false, isLiveUnitMode=false,
-  selfUnitId, speed=0, heading=0,
+  selectedAlert, navigationActive=false,
+  speed=0, heading=0,
   onRouteDataReady,
 }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -64,7 +62,7 @@ export default function Map({
   const [guidance, setGuidance] = useState<{text:string;icon:string;dist:number}|null>(null);
   const [autoCenter, setAutoCenter] = useState(true);
 
-  // ── Init Map ──────────────────────────────────────────────────────────────
+  // 1. Map Initialization
   useEffect(() => {
     if (!mapContainer.current) return;
 
@@ -81,15 +79,13 @@ export default function Map({
           }
         },
         layers: [{
-          id: 'carto-dark-layer',
+          id: 'base-layer',
           type: 'raster',
-          source: 'carto-dark',
-          minzoom: 0,
-          maxzoom: 20
+          source: 'carto-dark'
         }]
       },
-      center: [center[1], center[0]], // MapLibre uses [lng, lat]
-      zoom: 16,
+      center: [center[1], center[0]],
+      zoom: 16.5,
       pitch: 0,
       bearing: 0,
       attributionControl: false
@@ -103,138 +99,120 @@ export default function Map({
     };
   }, []);
 
-  // ── OSRM Routing Fetch ────────────────────────────────────────────────────
+  // 2. Routing OSRM (Cleaned & Async Shielded)
   useEffect(() => {
-    if (!selectedAlert || !center || !navigationActive) {
+    if (!selectedAlert || !center || !navigationActive || !map.current) {
         setRoute(null);
-        if (map.current?.getSource('route')) {
-            (map.current.getSource('route') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
+        setGuidance(null);
+        if (map.current?.isStyleLoaded() && map.current.getSource(SOURCE_ROUTE)) {
+            (map.current.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
         }
         return;
     }
 
+    const abortController = new AbortController();
+    
     const fetchRoute = async () => {
         try {
-            const url = `https://router.project-osrm.org/route/v1/driving/${center[1]},${center[0]};${selectedAlert.lng},${selectedAlert.lat}?overview=full&geometries=geojson&steps=true&language=fr`;
-            const res = await fetch(url);
+            const url = `https://router.project-osrm.org/route/v1/driving/${center[1]},${center[0]};${selectedAlert.lng},${selectedAlert.lat}?overview=full&geometries=geojson&steps=true`;
+            const res = await fetch(url, { signal: abortController.signal });
             const data = await res.json();
+            
             if (data.code === 'Ok' && data.routes.length > 0) {
                 const r = data.routes[0];
                 setRoute(r);
-                onRouteDataReady?.({ distanceKm: r.distance / 1000, durationMin: r.duration / 60 });
-                
-                // Update Route Layer
-                if (map.current) {
-                    if (!map.current.getSource('route')) {
-                        map.current.addSource('route', { type: 'geojson', data: r.geometry });
-                        map.current.addLayer({
-                            id: 'route-line',
-                            type: 'line',
-                            source: 'route',
-                            layout: { 'line-join': 'round', 'line-cap': 'round' },
-                            paint: { 'line-color': '#3b82f6', 'line-width': 8, 'line-opacity': 0.8 }
-                        });
-                        map.current.addLayer({
-                            id: 'route-casing',
-                            type: 'line',
-                            source: 'route',
-                            layout: { 'line-join': 'round', 'line-cap': 'round' },
-                            paint: { 'line-color': '#93c5fd', 'line-width': 14, 'line-opacity': 0.25 }
-                        }, 'route-line');
-                    } else {
-                        (map.current.getSource('route') as maplibregl.GeoJSONSource).setData(r.geometry);
-                    }
+                onRouteDataReady?.({ distanceKm: r.distance/1000, durationMin: r.duration/60 });
+
+                if (!map.current!.isStyleLoaded()) return;
+
+                if (!map.current!.getSource(SOURCE_ROUTE)) {
+                    map.current!.addSource(SOURCE_ROUTE, { type: 'geojson', data: r.geometry });
+                    map.current!.addLayer({
+                        id: LAYER_ROUTE_CASING,
+                        type: 'line',
+                        source: SOURCE_ROUTE,
+                        paint: { 'line-color': '#3b82f6', 'line-width': 12, 'line-opacity': 0.2, 'line-blur': 4 },
+                        layout: { 'line-join': 'round', 'line-cap': 'round' }
+                    });
+                    map.current!.addLayer({
+                        id: LAYER_ROUTE_LINE,
+                        type: 'line',
+                        source: SOURCE_ROUTE,
+                        paint: { 'line-color': '#3b82f6', 'line-width': 6 },
+                        layout: { 'line-join': 'round', 'line-cap': 'round' }
+                    }, LAYER_ROUTE_CASING);
+                } else {
+                    (map.current!.getSource(SOURCE_ROUTE) as maplibregl.GeoJSONSource).setData(r.geometry);
                 }
             }
-        } catch (e) { console.error('OSRMFetch Error', e); }
+        } catch (e: any) { if(e.name !== 'AbortError') console.error('OSRMFetch Error', e); }
     };
 
     fetchRoute();
+    return () => abortController.abort();
   }, [selectedAlert?.id, center[0], center[1], navigationActive]);
 
-  // ── Update Markers & Camera ────────────────────────────────────────────────
+  // 3. Markers & Camera Loop
   useEffect(() => {
     if (!map.current) return;
 
-    // 1. Vehicle Animation & Camera
-    const targetLngLat: [number, number] = [center[1], center[0]];
-    
-    // Create/Move Vehicle
+    const target: [number, number] = [center[1], center[0]];
+
+    // Vehicle Marker logic
     if (!vehicleMarker.current) {
         const el = document.createElement('div');
         el.className = styles.vehicleMarkerContainer;
-        el.innerHTML = `
-            <div class="${styles.vPulse}"></div>
-            <div class="${styles.vPulseMid}"></div>
-            <div class="${styles.vDot}"></div>
-        `;
-        vehicleMarker.current = new maplibregl.Marker({ element: el })
-            .setLngLat(targetLngLat)
-            .addTo(map.current);
+        el.innerHTML = `<div class="${styles.vPulse}"></div><div class="${styles.vPulseMid}"></div><div class="${styles.vDot}"></div>`;
+        vehicleMarker.current = new maplibregl.Marker({ element: el }).setLngLat(target).addTo(map.current);
     } else {
-        vehicleMarker.current.setLngLat(targetLngLat);
+        vehicleMarker.current.setLngLat(target);
     }
 
-    // Camera Logic
+    // Dynamic Camera
     if (autoCenter) {
         let zoom = 16.5;
-        let bearingVal = 0;
-        let pitch = 0;
+        let b = 0;
+        let p = 0;
 
         if (navigationActive) {
-            pitch = 45;
+            p = 45;
             const kmh = speed * 3.6;
-            if (kmh < 10) zoom = 19;
-            else if (kmh < 40) zoom = 18;
+            if (kmh < 15) zoom = 20;
+            else if (kmh < 40) zoom = 19;
             else zoom = 17;
 
-            // Rotation Logic
-            if (heading > 0) bearingVal = heading;
-            else if (route?.legs[0]?.steps[0]) {
+            // Rotation priorities: 1. Compass (heading) | 2. OSRM Step Geometry
+            if (heading > 0) {
+                b = heading;
+            } else if (route?.legs[0]?.steps[0]?.geometry?.coordinates?.length > 1) {
                 const s = route.legs[0].steps[0].geometry.coordinates;
-                if (s.length > 1) {
-                    bearingVal = bearing([s[0][1], s[0][0]], [s[1][1], s[1][0]]);
-                }
+                b = bearing([s[0][1], s[0][0]], [s[1][1], s[1][0]]);
             }
         }
 
         map.current.easeTo({
-            center: targetLngLat,
+            center: target,
             zoom: zoom,
-            bearing: bearingVal,
-            pitch: pitch,
-            duration: 1000,
+            bearing: b,
+            pitch: p,
+            duration: 800,
             easing: (t) => t
         });
     }
 
-    // 2. Stations Markers
-    stations.forEach(s => {
-        if (!stationMarkers.current[s.id]) {
-            const el = document.createElement('div');
-            el.className = styles.stationMarker;
-            el.innerHTML = '🏠';
-            stationMarkers.current[s.id] = new maplibregl.Marker({ element: el })
-                .setLngLat([s.lng, s.lat])
-                .addTo(map.current!);
-        }
-    });
-
-    // 3. Alerts Markers
+    // Alerts Sync
     alerts.forEach(a => {
         if (!alertMarkers.current[a.id]) {
             const el = document.createElement('div');
             el.className = a.status === 'pending' ? styles.alertMarkerPulse : styles.alertMarker;
             el.innerHTML = a.type === 'fire' ? '🔥' : a.type === 'medical' ? '🚑' : '🚗';
-            alertMarkers.current[a.id] = new maplibregl.Marker({ element: el })
-                .setLngLat([a.lng, a.lat])
-                .addTo(map.current!);
+            alertMarkers.current[a.id] = new maplibregl.Marker({ element: el }).setLngLat([a.lng, a.lat]).addTo(map.current!);
         }
     });
 
-  }, [center, speed, heading, navigationActive, route, stations, alerts, autoCenter]);
+  }, [center, speed, heading, navigationActive, route, alerts, autoCenter]);
 
-  // ── Guidance Processing ───────────────────────────────────────────────────
+  // 4. Guidance Logic
   useEffect(() => {
     if (route?.legs[0]?.steps?.length > 0) {
         const step = route.legs[0].steps[0];
@@ -248,7 +226,7 @@ export default function Map({
 
   return (
     <div className={styles.mapWrapper}>
-      <div ref={mapContainer} className={styles.mapContainerMain} style={{ width: '100%', height: '100%' }} />
+      <div ref={mapContainer} className={styles.mapContainerMain} />
 
       {navigationActive && guidance && (
         <div className={styles.guidanceBanner}>
