@@ -27,10 +27,13 @@ export const TacticalNav: React.FC<TacticalNavProps> = ({
       <>
         {/* L'instruction de navigation est maintenant gérée par le composant Map en XXL */}
         
-        {/* Floating Call Button if needed */}
+        {/* Tactical Floating Call Button */}
         {mission.phone && (
-          <div style={{ position: 'fixed', top: '110px', right: '35px', zIndex: 6000 }}>
-             <a href={`tel:${mission.phone}`} className={styles.navCallBtn}>📞</a>
+          <div className={styles.navCallFloatingContainer}>
+             <a href={`tel:${mission.phone}`} className={styles.btnCallTactical}>
+               <span className={styles.callIcon}>📞</span>
+               <span className={styles.callLabel}>APPELER</span>
+             </a>
           </div>
         )}
 

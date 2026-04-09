@@ -31,7 +31,6 @@ const getManeuverIcon = (type: string, mod?: string) => {
   return '⬆️';
 };
 
-// Snap logic: finds the closest point on the line segment
 function snapToLine(p: [number,number], a: [number,number], b: [number,number]): [number,number] {
     const x=p[1], y=p[0], x1=a[1], y1=a[0], x2=b[1], y2=b[0];
     const dx=x2-x1, dy=y2-y1;
@@ -51,15 +50,15 @@ function getSnappedPos(gps: [number,number], coords: any[]): [number,number] {
         const d=dist(gps, snapped);
         if(d<minD){ minD=d; best=snapped; }
     }
-    return minD < 25 ? best : gps;
+    return minD < 30 ? best : gps;
 }
 
 export const cleanInstruction = (text: string): string => {
   if (!text) return '';
-  let r = text.replace(/\u2019|\u0027/g, "'");
-  r = r.replace(/(Prenez la direction|Head|Se diriger vers (l'|le |la )|Direction|Vers (l'|le |la ))(nord|sud|est|ouest|nord-est|nord-ouest|sud-est|sud-ouest)\s*(sur\s*)?(la\s+|le\s+|l')?/ig, 'CONTINUEZ SUR ');
-  r = r.replace(/Turn (left|right) onto /ig, (_,d) => d==='left' ? 'TOURNER À GAUCHE SUR ' : 'TOURNER À DROITE SUR ');
-  return r.toUpperCase();
+  return text.replace(/\u2019|\u0027/g, "'")
+    .replace(/(Prenez la direction|Head|Se diriger vers (l'|le |la )|Direction|Vers (l'|le|la ))(nord|sud|est|ouest|nord-est|nord-ouest|sud-est|sud-ouest)\s*(sur\s*)?(la\s+|le\s+|l')?/ig, 'CONTINUEZ SUR ')
+    .replace(/Turn (left|right) onto /ig, (_,d) => d==='left' ? 'TOURNER À GAUCHE SUR ' : 'TOURNER À DROITE SUR ')
+    .toUpperCase();
 };
 
 interface MapProps {
@@ -71,10 +70,9 @@ interface MapProps {
 }
 
 export default function Map({
-  stations=[], alerts=[], units=[],
-  center=[5.3365,-4.0268],
-  selectedAlert, navigationActive=false, isLiveUnitMode=false,
-  selfUnitId, speed=0, heading=0, onRouteDataReady,
+  alerts=[], center=[5.3365,-4.0268],
+  selectedAlert, navigationActive=false,
+  speed=0, heading=0, onRouteDataReady,
 }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -101,31 +99,38 @@ export default function Map({
     return () => { map.current?.remove(); };
   }, []);
 
-  // OSRM Routing
+  // OSRM Routing (Fiabilisé)
   useEffect(() => {
     if (!selectedAlert || !navigationActive || !map.current) {
         setRoute(null); setGuidance(null);
-        if (map.current?.isStyleLoaded() && map.current.getSource(SOURCE_ROUTE)) (map.current.getSource(SOURCE_ROUTE) as any).setData({type:'FeatureCollection',features:[]});
+        if (map.current?.isStyleLoaded() && map.current.getSource(SOURCE_ROUTE)) {
+          (map.current.getSource(SOURCE_ROUTE) as any).setData({type:'FeatureCollection',features:[]});
+        }
         return;
     }
+
     const abort = new AbortController();
     fetch(`https://router.project-osrm.org/route/v1/driving/${center[1]},${center[0]};${selectedAlert.lng},${selectedAlert.lat}?overview=full&geometries=geojson&steps=true&language=fr`, {signal:abort.signal})
     .then(r=>r.json()).then(data=>{
-        if(data.code==='Ok' && data.routes.length>0){
+        if(data.code==='Ok' && data.routes.length>0 && map.current){
             const r=data.routes[0]; setRoute(r);
             onRouteDataReady?.({ distanceKm: r.distance/1000, durationMin: r.duration/60 });
-            if(!map.current?.isStyleLoaded()) return;
+            
+            if(!map.current.isStyleLoaded()) return;
+
             if(!map.current.getSource(SOURCE_ROUTE)){
                 map.current.addSource(SOURCE_ROUTE, {type:'geojson', data:r.geometry});
-                map.current.addLayer({id:LAYER_ROUTE_CASING, type:'line', source:SOURCE_ROUTE, paint:{'line-color':'#3b82f6','line-width':14,'line-opacity':0.15,'line-blur':6}, layout:{'line-join':'round','line-cap':'round' }});
+                map.current.addLayer({id:LAYER_ROUTE_CASING, type:'line', source:SOURCE_ROUTE, paint:{'line-color':'#3b82f6','line-width':14,'line-opacity':0.2,'line-blur':6}, layout:{'line-join':'round','line-cap':'round' }});
                 map.current.addLayer({id:LAYER_ROUTE_LINE, type:'line', source:SOURCE_ROUTE, paint:{'line-color':'#3b82f6','line-width':7}, layout:{'line-join':'round','line-cap':'round' }}, LAYER_ROUTE_CASING);
-            } else (map.current.getSource(SOURCE_ROUTE) as any).setData(r.geometry);
+            } else {
+                (map.current.getSource(SOURCE_ROUTE) as any).setData(r.geometry);
+            }
         }
     }).catch(e=>e.name!=='AbortError'&&console.error(e));
     return () => abort.abort();
-  }, [selectedAlert?.id, center[0], center[1], navigationActive]);
+  }, [selectedAlert?.id, navigationActive]); // Suppression du center des dépendances pour ne pas reclignoter à chaque mouvement
 
-  // Guidance Follower + Camera Loop
+  // Guidance Follower + Camera
   useEffect(() => {
     if (!map.current) return;
 
@@ -133,39 +138,29 @@ export default function Map({
     const finalPos = (navigationActive && routeCoords) ? getSnappedPos(center, routeCoords) : center;
     const target:[number,number] = [finalPos[1], finalPos[0]];
 
-    // 1. Find Current Instruction
+    // 1. Guidance
     if (route?.legs?.[0]?.steps) {
         const steps = route.legs[0].steps;
-        // Find first step that is ahead of us
         let nextStep = steps[0];
         for (let i = 0; i < steps.length; i++) {
             const stepPos: [number,number] = [steps[i].maneuver.location[1], steps[i].maneuver.location[0]];
-            const d = dist(center, stepPos);
-            if (d < 30) {
+            if (dist(center, stepPos) < 25) {
                 nextStep = steps[i+1] || steps[i];
                 break;
             }
         }
-        
         const inst = cleanInstruction(nextStep.maneuver.instruction);
         const distanceToNext = dist(center, [nextStep.maneuver.location[1], nextStep.maneuver.location[0]]);
-        
         if (inst !== lastInstructionRef.current) {
             lastInstructionRef.current = inst;
             window.dispatchEvent(new CustomEvent('sau-nav-instruction'));
         }
-
-        setGuidance({
-            text: inst,
-            icon: getManeuverIcon(nextStep.maneuver.type, nextStep.maneuver.modifier),
-            dist: Math.round(distanceToNext)
-        });
+        setGuidance({ text: inst, icon: getManeuverIcon(nextStep.maneuver.type, nextStep.maneuver.modifier), dist: Math.round(distanceToNext) });
     }
 
-    // 2. Vehicle Marker
+    // 2. Marker
     if (!vehicleMarker.current) {
-        const el = document.createElement('div');
-        el.className = 'v-arrow-container';
+        const el = document.createElement('div'); el.className = 'v-arrow-container';
         el.innerHTML = `<svg viewBox="0 0 100 100" class="v-arrow-svg"><path d="M50 0 L90 90 L50 70 L10 90 Z" fill="#3b82f6" stroke="#fff" stroke-width="6"/></svg>`;
         vehicleMarker.current = new maplibregl.Marker({ element: el }).setLngLat(target).addTo(map.current);
     } else {
@@ -174,11 +169,11 @@ export default function Map({
 
     // 3. Camera
     if (autoCenter) {
-        let zoom=17.5, b=map.current.getBearing(), p=0, tb=0;
+        let zoom=17, b=map.current.getBearing(), p=0, tb=0;
         if (navigationActive) {
-            p=45; zoom = speed*3.6<15 ? 20 : 18.5;
-            if(heading>0) tb=heading;
-            else if(routeCoords?.length>1) tb=bearing([routeCoords[0][1], routeCoords[0][0]], [routeCoords[1][1], routeCoords[1][0]]);
+            p=45; zoom = speed * 3.6 < 15 ? 20.5 : 18.5;
+            if(heading > 0) tb = heading;
+            else if(routeCoords?.length > 1) tb = bearing([routeCoords[0][1], routeCoords[0][0]], [routeCoords[1][1], routeCoords[1][0]]);
         }
         const diff=(tb-b+540)%360-180;
         const smoothB=b+diff*0.2;
