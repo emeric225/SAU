@@ -62,9 +62,12 @@ export const getManeuverIcon = (type: string, modifier: string) => {
 
 export const cleanInstruction = (text: string) => {
   if (!text) return '';
-  let res = text.replace(/Prenez la direction (nord|sud|est|ouest|nord-est|nord-ouest|sud-est|sud-ouest) sur /ig, 'Continuez sur ');
-  res = res.replace(/Head (north|south|east|west|northeast|northwest|southeast|southwest) on /ig, 'Continuez sur ');
-  return res;
+  // Traduction et nettoyage agressif
+  let res = text.replace(/Head (north|south|east|west|northeast|northwest|southeast|southwest) on /ig, 'CONTINUEZ SUR ');
+  res = res.replace(/Prenez la direction (nord|sud|est|ouest|nord-est|nord-ouest|sud-est|sud-ouest) sur /ig, 'CONTINUEZ SUR ');
+  res = res.replace(/Turn (left|right) onto /ig, (m, dir) => dir === 'left' ? 'TOURNEZ À GAUCHE SUR ' : 'TOURNEZ À DROITE SUR ');
+  res = res.replace(/Tournez à (gauche|droite) sur /ig, (m, dir) => dir === 'gauche' ? 'TOURNEZ À GAUCHE SUR ' : 'TOURNEZ À DROITE SUR ');
+  return res.toUpperCase();
 };
 
 // --- Icons ---
@@ -214,12 +217,16 @@ function RoutingMachine({ waypoints, onRouteUpdate, active }: { waypoints: L.Lat
 }
 
 
-function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter, speed }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; setAutoCenter: (v: boolean) => void, speed: number }) {
+function MapRecenter({ center, navigationActive, autoCenter, speed }: { center: [number, number]; navigationActive: boolean; autoCenter: boolean; speed: number }) {
   const map = useMap();
 
   useMapEvents({
-    dragstart: () => setAutoCenter(false),
-    zoomstart: () => setAutoCenter(false)
+    dragstart: () => {
+      window.dispatchEvent(new CustomEvent('sau-manual-drag'));
+    },
+    zoomstart: () => {
+      window.dispatchEvent(new CustomEvent('sau-manual-drag'));
+    }
   });
 
   useEffect(() => {
@@ -240,17 +247,9 @@ function MapRecenter({ center, navigationActive, autoCenter, setAutoCenter, spee
       map.setZoom(targetZoom, { animate: true });
     }
 
-    // Offset: Position tracker at 25% from bottom of the screen
-    if (navigationActive) {
-      const point = map.project(center, map.getZoom());
-      // Screen dimension offset (shift center UP by 25% of viewport height)
-      const offset = (window.innerHeight || map.getSize().y) / 4; 
-      const targetPoint = point.subtract([0, offset]);
-      const targetLatLng = map.unproject(targetPoint, map.getZoom());
-      map.panTo(targetLatLng, { animate: true, duration: 1.2, easeLinearity: 0.1 });
-    } else {
-      map.panTo(center, { animate: true, duration: 0.8 });
-    }
+    // Le centre parfait absolu. L'offset visuel est désormais géré par le wrapper CSS de la carte
+    // pour garantir que la rotation Leaflet pivote *exactement* sur le véhicule sans orbite désaxée.
+    map.panTo(center, { animate: true, duration: navigationActive ? 1.2 : 0.8, easeLinearity: 0.1 });
   }, [center, map, navigationActive, autoCenter, speed]);
 
   return null;
@@ -303,7 +302,12 @@ export default function Map({
   const [smoothRotation, setSmoothRotation] = useState(0);
   const [autoCenter, setAutoCenter] = useState(true);
   const [route, setRoute] = useState<any>(null);
-  
+  useEffect(() => {
+    const handleDrag = () => setAutoCenter(false);
+    window.addEventListener('sau-manual-drag', handleDrag);
+    return () => window.removeEventListener('sau-manual-drag', handleDrag);
+  }, []);
+
   const [guidanceObj, setGuidanceObj] = useState<{ text: string, icon: string, distance: number } | null>(null);
   const [signalStatus, setSignalStatus] = useState<'solid' | 'weak'>('solid');
 
@@ -445,7 +449,7 @@ export default function Map({
       {(navigationActive || (isLiveUnitMode && selectedAlert)) && guidanceObj && (
         <div className={styles.guidanceBanner}>
           <div className={styles.guidanceIcon}>{guidanceObj.icon}</div>
-          <div className={styles.guidanceText}>{guidanceObj.text.toUpperCase()} ({guidanceObj.distance}M)</div>
+          <div className={styles.guidanceText}>{guidanceObj.text} ({guidanceObj.distance}M)</div>
           {signalStatus === 'weak' && <div className={styles.weakSignal}>SIG.</div>}
         </div>
       )}
@@ -453,12 +457,11 @@ export default function Map({
       {/* Auto-Rotating Oversized Map Container */}
       <div style={{
         position: 'absolute',
-        width: '150vmax', height: '150vmax',
+        width: '200vmax', height: '200vmax',
         top: '50%', left: '50%',
-        marginLeft: '-75vmax', marginTop: '-75vmax',
-        transform: `rotate(${mapRotation}deg)`,
-        transformOrigin: `50% calc(50% + ${windowHeight / 4}px)`,
-        transition: 'transform 0.3s linear'
+        transform: `translate(-50%, calc(-50% + ${navigationActive ? '25vh' : '0vh'})) rotate(${mapRotation}deg)`,
+        transformOrigin: '50% 50%',
+        transition: 'transform 0.4s ease-out'
       }}>
         <MapContainer center={center} zoom={14} scrollWheelZoom={true} zoomControl={false} className={styles.mapContainerMain}>
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO" />
@@ -488,7 +491,6 @@ export default function Map({
             center={vehiclePos} 
             navigationActive={navigationActive} 
             autoCenter={autoCenter} 
-            setAutoCenter={setAutoCenter}
             speed={speed || 0}
           />
 

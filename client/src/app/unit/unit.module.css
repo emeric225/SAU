@@ -298,53 +298,39 @@
 
 .guidanceBanner {
   position: absolute;
-  top: 100px;
-  left: 16px;
-  right: 16px;
+  top: 70px;
+  left: 20px;
+  right: 20px;
   background: rgba(6, 95, 70, 0.95);
   border: 1px solid rgba(16, 185, 129, 0.4);
   color: #fff;
-  padding: 16px 20px;
-  border-radius: 20px;
+  padding: 10px 14px;
+  border-radius: 16px;
   z-index: 5000;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   box-shadow: 0 10px 30px rgba(6, 95, 70, 0.5);
   backdrop-filter: var(--tk-glass-blur);
+  animation: slideDownNav 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
 }
 
 .guidanceIcon {
-  font-size: 36px;
+  font-size: 26px;
   line-height: 1;
 }
 
 .guidanceText {
-  font-weight: 900;
-  font-size: 20px;
+  font-weight: 800;
+  font-size: 16px;
   flex: 1;
-  line-height: 1.2;
+  line-height: 1.1;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 @keyframes slideDownNav {
   from { transform: translateY(-30px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
-}
-
-.guidanceIcon {
-  font-size: 50px;
-  font-weight: 900;
-  color: #10b981;
-}
-
-.guidanceText {
-  flex: 1;
-  font-size: 26px;
-  font-weight: 950;
-  letter-spacing: -0.5px;
-  line-height: 1.1;
-  text-transform: uppercase;
 }
 
 .weakSignal {
