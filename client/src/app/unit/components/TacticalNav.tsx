@@ -46,21 +46,9 @@ export const TacticalNav: React.FC<TacticalNavProps> = ({
             <div className={styles.etaLabel}>KM</div>
           </div>
           <div className={styles.etaDivider}></div>
-          <div className={styles.etaBlock}>
-            <div className={styles.etaValue}>{getFormattedArrival()}</div>
-            <div className={styles.etaLabel}>ARRIVÉE</div>
+          <div className={styles.etaArriveBtn} onClick={() => onUpdateStatus('on_site')} style={{ cursor: 'pointer', background: '#f59e0b', color: '#000', fontWeight: 900, padding: '14px 20px', borderRadius: 16, fontSize: 14, border: 'none', whiteSpace: 'nowrap' }}>
+            📍 SUR PLACE
           </div>
-        </div>
-        
-        {/* Tactical Interaction Area (XXL) */}
-        <div style={{ padding: '0 16px 20px 16px', marginTop: '-4px', background: 'rgba(13, 17, 28, 0.98)' }}>
-          <button 
-            onClick={() => onUpdateStatus('on_site')} 
-            className={styles.combatBtnXxl}
-            style={{ backgroundColor: '#f59e0b', color: '#000' }}
-          >
-            📍 JE SUIS SUR PLACE
-          </button>
         </div>
       </>
     );
