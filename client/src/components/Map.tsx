@@ -239,25 +239,22 @@ export default function Map({
     return ()=>clearTimeout(sigTimer.current);
   },[center]);
 
-  // Update target + bearing
+  // Update target + bearing on new GPS
   useEffect(()=>{
-    let pos: [number,number] = center;
+    const gps: [number,number] = center; // use raw GPS
 
-    if(isLiveUnitMode && navigationActive && route?.coordinates?.length>1){
-      pos = snapToRoad(center, route.coordinates);
-    }
-
-    // Bearing: GPS heading first (when moving), else calculate from trajectory
-    if(heading>0 && speed>0.5){
+    // Bearing: GPS heading first, else calculate from trajectory
+    const prev = prevGpsRef.current;
+    const d = dist(prev, gps);
+    if(heading > 0 && speed > 0.5){
       rawBearRef.current = heading;
-    } else {
-      const d=dist(prevGpsRef.current, pos);
-      if(d>2) rawBearRef.current=bearing(prevGpsRef.current,pos);
+    } else if(d > 3){
+      rawBearRef.current = bearing(prev, gps);
     }
 
-    prevGpsRef.current=pos;
-    targetRef.current=pos;
-  },[center, isLiveUnitMode, navigationActive, route, heading, speed]);
+    prevGpsRef.current = gps;
+    targetRef.current = gps; // map pans toward real GPS
+  },[center, heading, speed]);
 
   // Single RAF loop: position LERP + bearing LERP — direct DOM, no setState
   useEffect(()=>{
@@ -277,8 +274,8 @@ export default function Map({
       const moved=Math.abs(next[0]-cur[0])>1e-9||Math.abs(next[1]-cur[1])>1e-9;
       if(moved){
         lerpRef.current=next;
-        markerRef.current?.setLatLng(next);
-        setLerpPos([...next]); // triggers MapController pan
+        // DO NOT touch markerRef — React owns marker position via `center` prop
+        setLerpPos([...next]); // only used for MapController smooth pan
       }
 
       // Bearing lerp — update DOM directly, no React re-render
