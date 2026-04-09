@@ -311,9 +311,9 @@ export default function Map({
       smoothBearRef.current=lerpAngle(prev, rawBearRef.current, 0.08);
       const diff=Math.abs(smoothBearRef.current-prev);
       if(diff>0.05 && mapDivRef.current){
-        const rot=-smoothBearRef.current; // negative = course-up
+        // Positive bearing = clockwise rotation of map → route direction goes UP
+        const rot = smoothBearRef.current;
         mapDivRef.current.style.transform=`rotate(${rot}deg)`;
-        // icon is a static dot — no setIcon needed
       }
 
       raf=requestAnimationFrame(tick);
