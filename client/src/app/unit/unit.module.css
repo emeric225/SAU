@@ -275,6 +275,96 @@
   height: 100%;
   width: 100%;
   z-index: 0;
+  background: #05070a;
+}
+
+/* ── MapLibre Markers ──────────────────────────────────────────────────────── */
+.vehicleMarkerContainer {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.vPulse {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.2);
+  animation: vp-pulse 1.5s ease-out infinite;
+}
+
+.vPulseMid {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.35);
+  animation: vp-pulse 1.5s 0.5s ease-out infinite;
+}
+
+.vDot {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--tk-accent-red);
+  border: 2.5px solid #fff;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.9);
+}
+
+@keyframes vp-pulse {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.stationMarker {
+  background: var(--tk-accent-blue);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  font-size: 16px;
+}
+
+.alertMarker {
+  background: var(--tk-accent-orange);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.alertMarkerPulse {
+  background: var(--tk-accent-red);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  animation: ap-alert 1s infinite;
+  box-shadow: 0 0 20px rgba(244, 63, 114, 0.6);
+}
+
+@keyframes ap-alert {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); opacity: 0.8; }
+  100% { transform: scale(1); }
 }
 
 .guidanceBanner {
