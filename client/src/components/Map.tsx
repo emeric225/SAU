@@ -159,12 +159,15 @@ function MapController({ target, active, autoCenter, speed }: {
   useEffect(()=>{
     if(!autoCenter||!map) return;
 
-    // Adaptive zoom
-    let zoom=17;
+    // Adaptive zoom ultra-proche (inspiré Google Maps)
+    let zoom=18;
     if(active){
       const kmh=speed*3.6;
-      if(kmh<8) zoom=19; else if(kmh<30) zoom=18; else if(kmh<60) zoom=17; else zoom=16;
-    } else { zoom=15; }
+      if(kmh<10) zoom=20.5; // Très proche au démarrage/basse vitesse (basé sur votre image)
+      else if(kmh<35) zoom=19;
+      else if(kmh<70) zoom=17.5;
+      else zoom=16.5;
+    } else { zoom=16; }
     if(Math.abs(map.getZoom()-zoom)>0.5) map.setZoom(zoom,{animate:false});
 
     // Offset pan: move map so vehicle appears OFFSET_PX below center

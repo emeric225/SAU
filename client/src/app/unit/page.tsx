@@ -242,46 +242,57 @@ export default function UnitInterface() {
     }
   }, [initSocket, requestWakeLock, showToast]);
 
-  // ─── Compass (DeviceOrientation API) ──────────────────────────────────────────
-  useEffect(() => {
-    if (!unit) return;
+  // ─── Direct Compass Permission (MUST be user-triggered) ─────────────────────
+  const activateCompass = useCallback(() => {
     if (typeof window === 'undefined') return;
 
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      // iOS: webkitCompassHeading is the most accurate (true compass heading)
       const ios = (e as any).webkitCompassHeading;
       let deg: number;
       if (ios !== undefined && ios !== null) {
-        deg = ios; // 0=North, clockwise ✓
+        deg = ios;
       } else if (e.alpha !== null) {
-        // Android: alpha is azimuth (0=North, but counterclockwise)
         deg = (360 - e.alpha) % 360;
-      } else {
-        return;
-      }
+      } else return;
+
       compassRef.current = deg;
       setCompassHeading(deg);
     };
 
     const startListening = () => {
       window.addEventListener('deviceorientation', handleOrientation, true);
+      showToast('🧭 Boussole activée', 'success', 2000);
     };
 
-    // iOS 13+ requires explicit permission
     const DOE = (DeviceOrientationEvent as any);
     if (typeof DOE.requestPermission === 'function') {
       DOE.requestPermission()
         .then((state: string) => {
           if (state === 'granted') startListening();
-          else showToast('⚠️ Boussole refusée — rotation GPS uniquement', 'warning', 4000);
+          else showToast('⚠️ Boussole refusée par l\'utilisateur', 'error', 4000);
         })
-        .catch(() => startListening()); // try anyway
+        .catch((err: any) => {
+            console.error('Compass error', err);
+            startListening(); // Fallback
+        });
     } else {
       startListening();
     }
+  }, [showToast]);
 
-    return () => window.removeEventListener('deviceorientation', handleOrientation, true);
-  }, [unit, showToast]);
+  const handleTacticalActivation = useCallback(() => {
+     // 1. Audio Activation
+     if (!audioCtxRef.current) {
+       audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+     }
+     if (audioCtxRef.current.state === 'suspended') {
+       audioCtxRef.current.resume();
+     }
+     setAudioEnabled(true);
+     
+     // 2. Compass Activation (now that we have a user click!)
+     activateCompass();
+  }, [activateCompass]);
 
   // ─── GPS Tracking ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -323,6 +334,16 @@ export default function UnitInterface() {
                 timestamp: new Date().toISOString()
             });
         }
+        
+        // Adaptive zoom ultra-proche (inspiré Google Maps)
+        let zoom=18;
+        if(unit?.status === 'en_route'){
+          const kmh=speed*3.6;
+          if(kmh<10) zoom=20.5; // Très proche au démarrage/basse vitesse
+          else if(kmh<35) zoom=19.5;
+          else if(kmh<70) zoom=18;
+          else zoom=17;
+        } else { zoom=16; }
       },
       (err) => { 
         if (!gpsLockedRef.current) {
