@@ -61,10 +61,10 @@ export default function Map({
     const [guidance, setGuidance] = useState<any>(null);
     const [autoCenter, setAutoCenter] = useState(true);
 
-    // Initialisation
+    // Init Map
     useEffect(() => {
         if (!mapContainer.current) return;
-        map.current = new maplibregl.Map({
+        const m = new maplibregl.Map({
             container: mapContainer.current,
             style: {
                 version: 8,
@@ -73,17 +73,15 @@ export default function Map({
             },
             center: [center[1], center[0]], zoom: 17, pitch: 0, attributionControl: false
         });
-        map.current.on('dragstart', () => setAutoCenter(false));
-        return () => { map.current?.remove(); };
+        m.on('dragstart', () => setAutoCenter(false));
+        map.current = m;
+        return () => { m.remove(); };
     }, []);
 
-    // OSRM Routing logic
+    // OSRM Data
     useEffect(() => {
-        if (!navigationActive || !selectedAlert || !map.current) {
+        if (!navigationActive || !selectedAlert) {
             setRoute(null); setGuidance(null);
-            if (map.current?.isStyleLoaded() && map.current.getSource(SR)) {
-                (map.current.getSource(SR) as any).setData({type:'FeatureCollection',features:[]});
-            }
             return;
         }
         fetch(`https://router.project-osrm.org/route/v1/driving/${center[1]},${center[0]};${selectedAlert.lng},${selectedAlert.lat}?overview=full&geometries=geojson&steps=true&language=fr`)
@@ -94,73 +92,90 @@ export default function Map({
                 onRouteDataReady?.({ distanceKm: r.distance / 1000, durationMin: r.duration / 60 });
             }
         });
-    }, [selectedAlert?.id, navigationActive]);
+    }, [selectedAlert?.id, navigationActive, center[0], center[1]]);
 
-    // Synchronisation Visuelle (Marker, Route, Camera)
+    // Rendering Sync
     useEffect(() => {
-        if (!map.current || !map.current.isStyleLoaded()) return;
+        const m = map.current;
+        if (!m) return;
 
-        // 1. Snapping & Position
-        let pos = center;
-        const coords = route?.geometry?.coordinates;
-        if (navigationActive && coords && coords.length > 1) {
-            let minD = Infinity;
-            for(let i=0; i<coords.length-1; i++) {
-                const snp = snap(center, [coords[i][1], coords[i][0]], [coords[i+1][1], coords[i+1][0]]);
-                const d = dist(center, snp);
-                if (d < minD) { minD = d; pos = snp; }
+        const sync = () => {
+            if (!m.isStyleLoaded()) return;
+
+            // 1. Snapping
+            let pos = center;
+            const coords = route?.geometry?.coordinates;
+            if (navigationActive && coords && coords.length > 1) {
+                let minD = Infinity;
+                for(let i=0; i<coords.length-1; i++) {
+                    const snp = snap(center, [coords[i][1], coords[i][0]], [coords[i+1][1], coords[i+1][0]]);
+                    const d = dist(center, snp);
+                    if (d < minD) { minD = d; pos = snp; }
+                }
+                if (minD > 35) pos = center;
             }
-            if (minD > 35) pos = center;
-        }
-        const target: [number, number] = [pos[1], pos[0]];
+            const target: [number, number] = [pos[1], pos[0]];
 
-        // 2. Itinéraire Blue Layer
-        if (route && navigationActive) {
-            if (!map.current.getSource(SR)) {
-                map.current.addSource(SR, { type: 'geojson', data: route.geometry });
-                map.current.addLayer({ id: LC, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 18, 'line-opacity': 0.15, 'line-blur': 10 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
-                map.current.addLayer({ id: LR, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 8 }, layout: { 'line-join': 'round', 'line-cap': 'round' } }, LC);
+            // 2. Route Layer (Ensured)
+            if (route && navigationActive) {
+                if (!m.getSource(SR)) {
+                    m.addSource(SR, { type: 'geojson', data: route.geometry });
+                    m.addLayer({ id: LC, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 18, 'line-opacity': 0.15, 'line-blur': 10 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
+                    m.addLayer({ id: LR, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 8 }, layout: { 'line-join': 'round', 'line-cap': 'round' } }, LC);
+                } else {
+                    (m.getSource(SR) as any).setData(route.geometry);
+                    if (!m.getLayer(LR)) {
+                         m.addLayer({ id: LC, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 18, 'line-opacity': 0.15, 'line-blur': 10 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
+                         m.addLayer({ id: LR, type: 'line', source: SR, paint: { 'line-color': '#3b82f6', 'line-width': 8 }, layout: { 'line-join': 'round', 'line-cap': 'round' } }, LC);
+                    }
+                }
+            } else if (m.getSource(SR)) {
+                (m.getSource(SR) as any).setData({ type: 'FeatureCollection', features: [] });
+            }
+
+            // 3. Vehicle Marker
+            if (!vMarker.current) {
+                const el = document.createElement('div');
+                el.innerHTML = `<svg viewBox="0 0 100 100" style="width:44px;height:44px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.6));transition:transform 0.1s linear"><path d="M50 5 L90 95 L50 75 L10 95 Z" fill="#3b82f6" stroke="#fff" stroke-width="6"/></svg>`;
+                vMarker.current = new maplibregl.Marker({ element: el }).setLngLat(target).addTo(m);
             } else {
-                (map.current.getSource(SR) as any).setData(route.geometry);
+                vMarker.current.setLngLat(target);
             }
-        }
 
-        // 3. Vehicle Arrow
-        if (!vMarker.current) {
-            const el = document.createElement('div');
-            el.innerHTML = `<svg viewBox="0 0 100 100" style="width:44px;height:44px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.6));transition:transform 0.1s linear"><path d="M50 5 L90 95 L50 75 L10 95 Z" fill="#3b82f6" stroke="#fff" stroke-width="6"/></svg>`;
-            vMarker.current = new maplibregl.Marker({ element: el }).setLngLat(target).addTo(map.current);
-        } else {
-            vMarker.current.setLngLat(target);
-        }
-
-        // 4. Camera & Guidance
-        if (navigationActive && route?.legs?.[0]?.steps) {
-            const steps = route.legs[0].steps;
-            let next = steps[0];
-            for(let s of steps) { if(dist(center,[s.maneuver.location[1], s.maneuver.location[0]]) < 25) { next = steps[steps.indexOf(s)+1]||s; break; } }
-            setGuidance({ text: next.maneuver.instruction.toUpperCase(), dist: Math.round(dist(center,[next.maneuver.location[1],next.maneuver.location[0]])) });
-            
-            let tB = heading > 0 ? heading : (coords?.length>1 ? getBearing([coords[0][1],coords[0][0]],[coords[1][1],coords[1][0]]) : 0);
-            if (autoCenter) {
-                const cB = map.current.getBearing();
-                const sB = cB + ((tB - cB + 540) % 360 - 180) * 0.2;
+            // 4. Camera & Guidance
+            if (navigationActive && route?.legs?.[0]?.steps) {
+                const steps = route.legs[0].steps;
+                let next = steps[0];
+                for(let s of steps) { if(dist(center,[s.maneuver.location[1], s.maneuver.location[0]]) < 25) { next = steps[steps.indexOf(s)+1]||s; break; } }
+                setGuidance({ text: next.maneuver.instruction.toUpperCase(), dist: Math.round(dist(center,[next.maneuver.location[1],next.maneuver.location[0]])) });
+                
+                let tB = heading > 0 ? heading : (coords?.length>1 ? getBearing([coords[0][1],coords[0][0]],[coords[1][1],coords[1][0]]) : 0);
+                if (autoCenter) {
+                    const cB = m.getBearing();
+                    const sB = cB + ((tB - cB + 540) % 360 - 180) * 0.2;
+                    const svg = vMarker.current.getElement().querySelector('svg') as HTMLElement;
+                    if (svg) svg.style.transform = `rotate(${tB - sB}deg)`;
+                    m.easeTo({ center: target, bearing: sB, pitch: 45, zoom: speed*3.6<15?20:18.5, duration: 800 });
+                }
+            } else {
+                if (autoCenter) m.easeTo({ center: [center[1], center[0]], pitch: 0, bearing: 0, duration: 800 });
                 const svg = vMarker.current.getElement().querySelector('svg') as HTMLElement;
-                if (svg) svg.style.transform = `rotate(${tB - sB}deg)`;
-                map.current.easeTo({ center: target, bearing: sB, pitch: 45, zoom: speed*3.6<15?20:18.5, duration: 800, easing: t=>t });
+                if (svg) svg.style.transform = `rotate(0deg)`;
             }
-        } else {
-            if (autoCenter) map.current.easeTo({ center: [center[1], center[0]], pitch: 0, bearing: 0, duration: 800 });
-            const svg = vMarker.current.getElement().querySelector('svg') as HTMLElement;
-            if (svg) svg.style.transform = `rotate(0deg)`;
-        }
 
-        // 5. Stations
-        stations.forEach(s => {
-            if (sMarkers.current[s.id]) return;
-            const el = document.createElement('div'); el.style.background='#3b82f6'; el.style.width='24px'; el.style.height='24px'; el.style.borderRadius='6px'; el.style.border='2px solid #fff'; el.style.display='flex'; el.style.alignItems='center'; el.style.justifyContent='center'; el.style.fontSize='12px'; el.innerHTML='🏠';
-            sMarkers.current[s.id] = new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(map.current!);
-        });
+            // 5. Stations
+            stations.forEach(s => {
+                if (sMarkers.current[s.id]) return;
+                const el = document.createElement('div'); el.style.background='#3b82f6'; el.style.width='24px'; el.style.height='24px'; el.style.borderRadius='6px'; el.style.border='2px solid #fff'; el.style.display='flex'; el.style.alignItems='center'; el.style.justifyContent='center'; el.style.fontSize='12px'; el.innerHTML='🏠';
+                sMarkers.current[s.id] = new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(m);
+            });
+        };
+
+        if (!m.isStyleLoaded()) {
+            m.once('style.load', sync);
+        } else {
+            sync();
+        }
     }, [center, speed, heading, navigationActive, route, autoCenter, stations, alerts]);
 
     return (

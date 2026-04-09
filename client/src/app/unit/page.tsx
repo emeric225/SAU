@@ -13,7 +13,7 @@ import { ReportModal } from './components/ReportModal';
 
 import type { MapProps } from '../../components/Map';
 
-const UnitMap = dynamic<MapProps>(() => import('../../components/Map'), { ssr: false });
+const UnitMap = dynamic<any>(() => import('../../components/Map'), { ssr: false });
 
 const DEFAULT_CENTER: [number, number] = [5.3365, -4.0268];
 
