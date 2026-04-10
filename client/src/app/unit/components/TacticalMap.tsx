@@ -82,11 +82,12 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     if (!map.isStyleLoaded()) return;
     const feature = { type: 'Feature', geometry: geojson, properties: {} };
 
-    // Remove existing layers cleanly
-    ['sau-glow', 'sau-casing', 'sau-line'].forEach(id => {
-      if (map.getLayer(id)) map.removeLayer(id);
-    });
-    if (map.getSource('sau-route')) map.removeSource('sau-route');
+    // Fluid Transition: Update data if layer exists
+    const existingSource = map.getSource('sau-route');
+    if (existingSource) {
+      existingSource.setData(feature);
+      return;
+    }
 
     map.addSource('sau-route', { type: 'geojson', data: feature });
     map.addLayer({ id: 'sau-glow',   type: 'line', source: 'sau-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#3b82f6', 'line-width': 28, 'line-opacity': 0.18, 'line-blur': 12 } });

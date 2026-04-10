@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useTacticalGPS } from './hooks/useTacticalGPS';
 import { useOSRM } from './hooks/useOSRM';
 import { useUnitSocket } from './hooks/useUnitSocket';
+import { processNavigation, getLineStringLengthMeters, getCurrentInstruction } from './utils/navigation';
 
 import { LoginScreen } from './components/LoginScreen';
 import { TacticalMap } from './components/TacticalMap';
@@ -113,14 +114,47 @@ export default function UnitPage() {
   /* Current navigation guidance step */
   const [guidanceStep, setGuidanceStep] = useState<{ text: string; distanceM: number }>({ text: '', distanceM: 0 });
 
+  /* ── Dynamic Navigation Engine ──────────────────────────────────────── */
+  const [trimmedRoute, setTrimmedRoute] = useState<any>(null);
+  const lastBeepRef = useRef<string>('');
+
   useEffect(() => {
-    if (unitStatus === 'en_route' && route?.steps?.length && position) {
-      const step = route.steps.find(s => s.distance > 0) || route.steps[0];
-      setGuidanceStep({ text: step?.maneuver?.instruction || 'Continuez tout droit', distanceM: step?.distance || 0 });
-    } else {
-      setGuidanceStep({ text: '', distanceM: 0 });
+    if (!position || !route?.geometry || unitStatus !== 'en_route') {
+      setTrimmedRoute(route?.geometry || null);
+      if (unitStatus !== 'en_route') setGuidanceStep({ text: '', distanceM: 0 });
+      return;
     }
-  }, [route?.steps, position, unitStatus]);
+
+    // 1. Process Geometry & Snap
+    const { distanceMeters, trimmedGeoJSON } = processNavigation(position, route.geometry);
+    setTrimmedRoute(trimmedGeoJSON);
+
+    // 2. Off-Route Recalculation (if deviated > 30m)
+    if (distanceMeters > 30) {
+      console.log(`[Navigation] ⚠️ Hors tracé (${Math.round(distanceMeters)}m) -> Recalcul complet...`);
+      const targetMission = activeMissionRef.current;
+      if (targetMission) {
+        fetchRoute(position, Number(targetMission.lat || targetMission.latitude), Number(targetMission.lng || targetMission.longitude));
+      }
+      return;
+    }
+
+    // 3. Dynamic Trimming & Step Tracking
+    const remainingDistance = getLineStringLengthMeters(trimmedGeoJSON);
+    const originalDistance = route.distanceM;
+    const traversedDistanceM = Math.max(0, originalDistance - remainingDistance);
+
+    const { instruction } = getCurrentInstruction(route.steps || [], traversedDistanceM);
+    
+    setGuidanceStep({ text: instruction, distanceM: remainingDistance });
+
+    // 4. Bip Secours
+    if (instruction && instruction !== lastBeepRef.current) {
+      lastBeepRef.current = instruction;
+      audio.beep(1200, 0.08);
+      setTimeout(() => audio.beep(1400, 0.08), 150);
+    }
+  }, [position, route]);
 
   /* ── Socket ─────────────────────────────────────────────────────── */
   const { emitStatus, emitPosition } = useUnitSocket({
@@ -283,7 +317,7 @@ export default function UnitPage() {
           speed={speed}
           navMode={unitStatus === 'en_route'}
           destination={destCoords}
-          routeGeoJSON={route?.geometry ?? null}
+          routeGeoJSON={trimmedRoute ?? null}
         />
       ) : (
         <div style={{
@@ -303,11 +337,6 @@ export default function UnitPage() {
           instruction={guidanceStep.text}
           distanceM={guidanceStep.distanceM}
           missionType={activeMission?.type}
-          onRetry={() => {
-            if (position && destCoords) {
-              fetchRoute(position, destCoords[0], destCoords[1]);
-            }
-          }}
         />
       )}
 
