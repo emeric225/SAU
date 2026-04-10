@@ -28,6 +28,9 @@ export default function UnitTacticalPage() {
   
   const [socket, setSocket] = useState<Socket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Custom Hooks
   const { position, heading, speed } = useTacticalGPS();
@@ -38,6 +41,11 @@ export default function UnitTacticalPage() {
 
   // ─── INITIALIZATION (Auth & Socket) ────────────────────────────────────────
   useEffect(() => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    });
+
     const saved = localStorage.getItem('sau_unit');
     if (saved) {
       try {
@@ -103,7 +111,18 @@ export default function UnitTacticalPage() {
   };
 
   // ─── AUDIO SYSTEM ────────────────────────────────────────────────────────
-  const initAudio = () => { if (!audioCtxRef.current) audioCtxRef.current = new window.AudioContext(); };
+  const initAudio = () => { 
+    if (!audioCtxRef.current) audioCtxRef.current = new window.AudioContext(); 
+    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
+    setAudioEnabled(true);
+    
+    // Tiny tactical confirmation beep
+    const o = audioCtxRef.current.createOscillator();
+    const g = audioCtxRef.current.createGain();
+    o.connect(g); g.connect(audioCtxRef.current.destination);
+    o.frequency.value = 1200; g.gain.value = 0.1;
+    o.start(); o.stop(audioCtxRef.current.currentTime + 0.05);
+  };
   
   const playSiren = () => {
     const ctx = audioCtxRef.current;
@@ -203,8 +222,23 @@ export default function UnitTacticalPage() {
   ] as [number, number] : null;
 
   return (
-    <div className={styles.unitContainer} onClick={initAudio}>
-      <UnitHeader unit={unit} isOnline={!!socket?.connected} onLogout={() => { localStorage.removeItem('sau_unit'); setUnit(null); }} />
+    <div className={styles.unitContainer}>
+      <UnitHeader 
+        unit={unit} 
+        isOnline={!!socket?.connected} 
+        socketConnected={!!socket?.connected}
+        syncing={isSyncing}
+        audioEnabled={audioEnabled}
+        onActivateAudio={initAudio}
+        onLogout={() => { localStorage.removeItem('sau_unit'); setUnit(null); }} 
+        deferredPrompt={deferredPrompt}
+        onInstall={() => {
+          if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
+          }
+        }}
+      />
 
       <main className={styles.mapArea}>
         {position ? (
