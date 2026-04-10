@@ -125,8 +125,8 @@ export default function UnitPage() {
       return;
     }
 
-    // 1. Process Geometry & Snap
-    const { distanceMeters, trimmedGeoJSON } = processNavigation(position, route.geometry);
+    // 1. Process Geometry & Snap (position is [lat, lng], navigation.ts expects [lng, lat])
+    const { distanceMeters, trimmedGeoJSON } = processNavigation([position[1], position[0]], route.geometry);
     setTrimmedRoute(trimmedGeoJSON);
 
     // 2. Off-Route Recalculation (if deviated > 30m)

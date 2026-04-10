@@ -1,11 +1,11 @@
-export function processNavigation(rawLngLat: [number, number], geojson: any) {
+export function processNavigation(lngLat: [number, number], geojson: any) {
   if (!geojson || geojson.type !== 'LineString' || !geojson.coordinates || geojson.coordinates.length < 2) {
-    return { snapped: rawLngLat, distanceMeters: 0, trimmedGeoJSON: geojson, segmentIndex: 0 };
+    return { snapped: lngLat, distanceMeters: 0, trimmedGeoJSON: geojson, segmentIndex: 0 };
   }
   
-  const [px, py] = rawLngLat;
+  const [px, py] = lngLat;
   let minDist = Infinity;
-  let snapped: [number, number] = rawLngLat;
+  let snapped: [number, number] = lngLat;
   let bestSegment = 0;
 
   for (let i = 0; i < geojson.coordinates.length - 1; i++) {
