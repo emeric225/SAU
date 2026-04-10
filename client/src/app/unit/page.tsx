@@ -39,6 +39,15 @@ export default function UnitTacticalPage() {
   
   useTacticalSync(unit?.id, currentStatus, position, heading, speed, socket);
 
+  // ─── SELF-HEALING LOGIC ────────────────────────────────────────────────────
+  // If unit is in a deployed state but has no mission object, reset to available
+  useEffect(() => {
+    if (unit && currentStatus !== 'available' && !activeMission && !pendingMission) {
+      console.warn('[SAU] State desync detected: Deployed status without mission. Resetting...');
+      changeStatus('available');
+    }
+  }, [currentStatus, activeMission, pendingMission, unit]);
+
   // ─── INITIALIZATION (Auth & Socket) ────────────────────────────────────────
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
