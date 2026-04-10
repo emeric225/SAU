@@ -161,23 +161,25 @@ export default function UnitPage() {
   useEffect(() => { positionRef.current = position; }, [position]);
 
   useEffect(() => {
-    if (unitStatus !== 'en_route') {
+    // Calculer la route pour l'alerte en cours (mission active) ou celle qui vient d'arriver (en attente)
+    const targetMission = activeMissionRef.current || pendingMission;
+
+    if (!targetMission) {
       clearRoute();
       return;
     }
 
     const tryFetch = () => {
-      const mission = activeMissionRef.current;
       const pos = positionRef.current;
-      if (!mission || !pos) { console.log('[Route] Waiting for mission/GPS…'); return; }
+      if (!pos) { console.log('[Route] Waiting for GPS…'); return; }
       if (Math.abs(pos[0]) < 0.01 && Math.abs(pos[1]) < 0.01) { console.log('[Route] GPS at 0,0 — not ready'); return; }
 
-      const destLat = Number(mission.lat ?? mission.latitude);
-      const destLng = Number(mission.lng ?? mission.longitude);
-      console.log('[Route] Coords check — destLat:', destLat, 'destLng:', destLng, 'mission:', mission.id);
+      const destLat = Number(targetMission.lat ?? targetMission.latitude);
+      const destLng = Number(targetMission.lng ?? targetMission.longitude);
+      console.log('[Route] Coords check — destLat:', destLat, 'destLng:', destLng, 'mission:', targetMission.id);
 
       if (!destLat || !destLng || isNaN(destLat) || isNaN(destLng)) {
-        console.error('[Route] ❌ Invalid coords in mission:', JSON.stringify(mission));
+        console.error('[Route] ❌ Invalid coords in mission:', JSON.stringify(targetMission));
         return;
       }
 
@@ -187,15 +189,14 @@ export default function UnitPage() {
     // Try immediately
     tryFetch();
 
-    // Then retry every 8s until route is loaded (useOSRM internally deduplicates via AbortController)
+    // Then retry every 5s until route is loaded
     const timer = setInterval(() => {
-      // Stop retrying once we have a route
       if (route?.geometry) { clearInterval(timer); return; }
       tryFetch();
-    }, 8000);
+    }, 5000);
 
     return () => clearInterval(timer);
-  }, [unitStatus, activeMission?.id]);
+  }, [activeMission?.id, pendingMission?.id]);
 
   /* ── Auth ───────────────────────────────────────────────────────── */
   useEffect(() => {

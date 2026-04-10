@@ -103,7 +103,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     const map = mapRef.current;
     if (!map) return;
 
-    if (!routeGeoJSON || !navMode) {
+    if (!routeGeoJSON) {
       if (loadedRef.current) clearRoute(map);
       return;
     }
@@ -113,7 +113,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     } else {
       pendingRoute.current = routeGeoJSON; // buffer until map.on('load')
     }
-  }, [routeGeoJSON, navMode]);
+  }, [routeGeoJSON]);
 
   /* ── 3. Markers ──────────────────────────────────────────────────────── */
   async function initMarkers(map: any, mgl: any) {
@@ -133,7 +133,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
 
     (async () => {
       const mgl = (await import('maplibre-gl')).default;
-      if (navMode && destination) {
+      if (destination) {
         const lngLat: [number, number] = [destination[1], destination[0]];
         if (!destRef.current) {
           const el = document.createElement('div');
@@ -147,7 +147,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
         destRef.current = null;
       }
     })();
-  }, [navMode, destination?.[0], destination?.[1]]);
+  }, [destination?.[0], destination?.[1]]);
 
   /* ── 4. Camera + marker position every GPS update ────────────────────── */
   useEffect(() => {
@@ -163,14 +163,20 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     }
 
     if (navMode) {
-      // Heading-up: smooth bearing towards heading, pitch 45°, unit in lower-quarter
-      const curBearing = map.getBearing();
-      const delta = ((heading - curBearing + 540) % 360) - 180;
+      // Heading-up: smooth bearing towards heading, pitch 45°, unit in lower-quarter.
+      // ⚠️ IMPORTANT: Only rotate the map if the user is actually moving (speed > 1.5 m/s or ~5.4 km/h).
+      // When stopped, GPS bearing jumps randomly and causes aggressive map spinning.
+      let targetBearing = map.getBearing();
+      if (speed && speed > 1.5 && heading !== null && heading >= 0) {
+        const delta = ((heading - targetBearing + 540) % 360) - 180;
+        targetBearing += delta * 0.35;
+      }
+      
       map.easeTo({
         center: lngLat,
-        bearing: curBearing + delta * 0.35,
+        bearing: targetBearing,
         pitch: 50,
-        zoom: (speed * 3.6) < 12 ? 18.5 : 17,
+        zoom: (speed && speed * 3.6 > 12) ? 17 : 18.5,
         padding: { top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 },
         duration: 900,
         easing: (t: number) => t * (2 - t),
