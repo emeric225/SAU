@@ -47,9 +47,12 @@ export default function UnitTacticalPage() {
     }
   }, []);
 
+  const [loginError, setLoginError] = useState('');
+
   const loginUnit = async (stationId: string) => {
     try {
-      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stationId }) });
+      setLoginError('');
+      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stationId: stationId.trim() }) });
       const data = await res.json();
       if (data.success && data.isUnit) {
         setUnit(data.station);
@@ -60,9 +63,11 @@ export default function UnitTacticalPage() {
           setActiveMission(JSON.parse(localStorage.getItem('sau_unit_mission') || 'null'));
         }
         initSocket(data.station.id);
+      } else {
+        setLoginError(data.error || 'ID Tactique invalide.');
       }
     } catch (e) {
-      console.warn('Network error logging in');
+      setLoginError('Serveur injoignable (Réseau ou Hors-ligne)');
     }
   };
 
@@ -181,6 +186,7 @@ export default function UnitTacticalPage() {
           <div className={styles.logo}>SAU <span style={{fontSize: 20}}>TACTICAL</span></div>
           <h1 className={styles.loginTitle}>IDENTIFICATION</h1>
           <p className={styles.loginSub}>Saisissez l'ID tactique de votre unité</p>
+          {loginError && <div style={{ color: '#ef4444', marginBottom: 12, fontWeight: 'bold' }}>{loginError}</div>}
           <form onSubmit={e => { e.preventDefault(); loginUnit((e.target as any).uid.value); }}>
             <input name="uid" className={styles.loginInput} placeholder="Ex: AMB-01" required autoComplete="off" />
             <button type="submit" className={styles.combatBtnXxl} style={{ background: 'var(--tk-accent-blue)', color: '#fff' }}>CONNEXION</button>
