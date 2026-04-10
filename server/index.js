@@ -323,26 +323,26 @@ app.post('/api/stations/status/:id', async (req, res) => {
 // Login
 app.post('/api/auth/login', async (req, res) => {
   const { stationId, password } = req.body;
-  if (stationId.startsWith('u')) {
-    const { data: unit } = await supabase.from('units').select('*').eq('id', stationId).single();
-    if (unit) {
-      const { data: activeAlert } = await supabase
-        .from('alerts')
-        .select('*')
-        .or(`assigned_unit_id.eq.${unit.id},and(station_id.eq.${unit.station_id},status.in.(dispatched,on_site))`)
-        .neq('status', 'resolved')
-        .order('created_at', { ascending: false })
-        .limit(1)
-      let activeAlertData = activeAlert && activeAlert.length > 0 ? activeAlert[0] : null;
-      
-      // Auto-fix: if the unit thinks it is deployed but there is no active mission
-      if (!activeAlertData && unit.status !== 'available') {
-         const { data: updatedUnit } = await supabase.from('units').update({ status: 'available' }).eq('id', unit.id).select().single();
-         if (updatedUnit) unit.status = updatedUnit.status;
-      }
-
-      return res.json({ success: true, station: unit, isUnit: true, currentMission: activeAlertData || null });
+  
+  // 1. Try to find if the ID belongs to a Unit
+  const { data: unit } = await supabase.from('units').select('*').eq('id', stationId).single();
+  if (unit) {
+    const { data: activeAlert } = await supabase
+      .from('alerts')
+      .select('*')
+      .or(`assigned_unit_id.eq.${unit.id},and(station_id.eq.${unit.station_id},status.in.(dispatched,on_site))`)
+      .neq('status', 'resolved')
+      .order('created_at', { ascending: false })
+      .limit(1)
+    let activeAlertData = activeAlert && activeAlert.length > 0 ? activeAlert[0] : null;
+    
+    // Auto-fix: if the unit thinks it is deployed but there is no active mission
+    if (!activeAlertData && unit.status !== 'available') {
+        const { data: updatedUnit } = await supabase.from('units').update({ status: 'available' }).eq('id', unit.id).select().single();
+        if (updatedUnit) unit.status = updatedUnit.status;
     }
+
+    return res.json({ success: true, station: unit, isUnit: true, currentMission: activeAlertData || null });
   }
   
   if (stationId === 'admin') {
