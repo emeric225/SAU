@@ -217,7 +217,7 @@ export default function UnitTacticalPage() {
     };
 
     fetchRoute();
-  }, [currentStatus, activeMission?.id, !!position]);
+  }, [currentStatus, activeMission?.id, position]);
 
   // Handle Route Guidance Update
   useEffect(() => {

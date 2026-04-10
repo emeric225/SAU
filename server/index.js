@@ -278,9 +278,11 @@ app.patch('/api/alerts/:id', async (req, res) => {
     // 1. Important: Get current alert state to know which unit was assigned before updating
     const { data: existingAlert } = await supabase
       .from('alerts')
-      .select('assigned_unit_id')
+      .select('assigned_unit_id, lat, lng')
       .eq('id', id)
       .maybeSingle();
+
+    console.log(`[SAU] 🔄 Mise à jour alerte ${id}. Coordonnées actuelles: ${existingAlert?.lat}, ${existingAlert?.lng}`);
 
     const updateData = {};
     if (status) updateData.status = status;
