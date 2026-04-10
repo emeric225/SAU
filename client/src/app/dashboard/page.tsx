@@ -209,10 +209,11 @@ export default function Dashboard() {
     if (!confirm('Voulez-vous vraiment annuler l\'intervention de cette unité ?')) return;
     
     // Remettre l'alerte en pending. Le backend s'occupera de libérer l'unité.
+    // On conserve le station_id pour que l'alerte reste assignée à la caserne !
     fetch(`/api/alerts/${alertId}`, { 
       method: 'PATCH', 
       headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify({ status: 'pending', station_id: null, assigned_unit_id: null }) 
+      body: JSON.stringify({ status: 'pending', station_id: stationId || null, assigned_unit_id: null }) 
     })
     .then(() => {
       fetchData();

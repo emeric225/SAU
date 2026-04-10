@@ -166,32 +166,84 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     };
   }, []);
 
-  /* ── 4. Smooth Marker Interpolation & Camera ───────────────────────── */
+  /* ── 4. Smooth Marker Interpolation & Hardware Camera Sync ───────────────── */
   const animRef = useRef<number>(0);
   const currentPosRef = useRef<{ lat: number; lng: number; heading: number } | null>(null);
+
+  // Simple snap-to-road utility
+  function getSnappedPosition(rawLngLat: [number, number], geojson: any): [number, number] {
+    if (!geojson || geojson.type !== 'LineString' || !geojson.coordinates || geojson.coordinates.length < 2) {
+      return rawLngLat;
+    }
+    const [px, py] = rawLngLat;
+    let minDist = Infinity;
+    let snapped: [number, number] = rawLngLat;
+
+    for (let i = 0; i < geojson.coordinates.length - 1; i++) {
+      const [ax, ay] = geojson.coordinates[i];
+      const [bx, by] = geojson.coordinates[i + 1];
+      
+      const dx = bx - ax;
+      const dy = by - ay;
+      if (dx === 0 && dy === 0) continue;
+      
+      const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+      const clampedT = Math.max(0, Math.min(1, t));
+      const projX = ax + clampedT * dx;
+      const projY = ay + clampedT * dy;
+      
+      const distSq = (px - projX) * (px - projX) + (py - projY) * (py - projY);
+      if (distSq < minDist) {
+        minDist = distSq;
+        snapped = [projX, projY];
+      }
+    }
+    
+    // approx 1 degree = 111km. 0.0005 deg = ~55 meters tolerance
+    if (minDist < 0.0005 * 0.0005) {
+      return snapped;
+    }
+    return rawLngLat;
+  }
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
 
-    const targetLngLat: [number, number] = [center[1], center[0]];
-    const targetHeading = heading || 0;
+    let targetLngLat: [number, number] = [center[1], center[0]];
+    let targetHeading = heading || 0;
 
-    // First time setup
+    // SNAP TO ROAD
+    if (navMode && routeGeoJSON) {
+      targetLngLat = getSnappedPosition(targetLngLat, routeGeoJSON);
+    }
+
     if (!currentPosRef.current) {
       currentPosRef.current = { lat: center[0], lng: center[1], heading: targetHeading };
       if (vehicleRef.current) {
         vehicleRef.current.setLngLat(targetLngLat);
         vehicleRef.current.setRotation(targetHeading);
       }
+      if (isFollowing) {
+        map.jumpTo({
+          center: targetLngLat,
+          bearing: navMode ? targetHeading : 0,
+          pitch: navMode ? 50 : 0,
+          zoom: navMode ? 18.5 : 16,
+          padding: { top: navMode ? Math.round(window.innerHeight * 0.55) : 0, bottom: 0, left: 0, right: 0 }
+        });
+      }
+      return;
     }
 
     const startLat = currentPosRef.current.lat;
     const startLng = currentPosRef.current.lng;
-    const startHeading = currentPosRef.current.heading;
+    let startHeading = currentPosRef.current.heading;
 
-    let deltaHeading = ((targetHeading - startHeading + 540) % 360) - 180;
-    const duration = 900;
+    // Handle heading wrap
+    let deltaHdn = ((targetHeading - startHeading + 540) % 360) - 180;
+    
+    const duration = 1000; // Matches typical GPS 1s update rate
     const startTime = performance.now();
 
     cancelAnimationFrame(animRef.current);
@@ -199,11 +251,11 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     const animate = (time: number) => {
       let progress = (time - startTime) / duration;
       if (progress > 1) progress = 1;
-      const ease = progress * (2 - progress);
-
-      const currentLat = startLat + (center[0] - startLat) * ease;
-      const currentLng = startLng + (center[1] - startLng) * ease;
-      const currentHdn = startHeading + deltaHeading * ease;
+      
+      // Linear interpolation to prevent easeTo rubber-banding at 1hz
+      const currentLat = startLat + (targetLngLat[1] - startLat) * progress;
+      const currentLng = startLng + (targetLngLat[0] - startLng) * progress;
+      const currentHdn = startHeading + deltaHdn * progress;
 
       if (vehicleRef.current) {
         vehicleRef.current.setLngLat([currentLng, currentLat]);
@@ -212,31 +264,24 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
 
       currentPosRef.current = { lat: currentLat, lng: currentLng, heading: currentHdn };
 
+      // HARDWARE 60FPS CAMERA SYNC
+      if (isFollowing) {
+        map.setCenter([currentLng, currentLat]);
+        if (navMode) {
+          // Hardware native bearing rotation
+          map.setBearing(currentHdn);
+          map.setPitch(50);
+          map.setZoom((speed && speed * 3.6 > 12) ? 17.5 : 18.5);
+          map.setPadding({ top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 });
+        } else {
+          map.setBearing(0);
+          map.setPitch(0);
+        }
+      }
+
       if (progress < 1) animRef.current = requestAnimationFrame(animate);
     };
     animRef.current = requestAnimationFrame(animate);
-
-    /* Camera Sync */
-    if (isFollowing) {
-      let targetBearing = map.getBearing();
-      if (navMode) {
-        if (speed && speed > 1.5) {
-          const bearingDelta = ((targetHeading - targetBearing + 540) % 360) - 180;
-          targetBearing += bearingDelta * 0.35;
-        }
-        map.easeTo({
-          center: targetLngLat,
-          bearing: targetBearing,
-          pitch: 50,
-          zoom: (speed && speed * 3.6 > 12) ? 17 : 18.5,
-          padding: { top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 },
-          duration: 900,
-          easing: (t: number) => t * (2 - t),
-        });
-      } else {
-        map.easeTo({ center: targetLngLat, bearing: 0, pitch: 0, zoom: 16, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 800 });
-      }
-    }
 
   }, [center[0], center[1], heading, speed, navMode, isFollowing]);
 
@@ -257,42 +302,38 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
             const map = mapRef.current;
             if (map) {
               const targetLngLat: [number, number] = [center[1], center[0]];
-              if (navMode) {
-                map.easeTo({
-                  center: targetLngLat,
-                  bearing: heading || 0,
-                  pitch: 50,
-                  zoom: 18.5,
-                  padding: { top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 },
-                  duration: 800
-                });
-              } else {
-                map.easeTo({ center: targetLngLat, bearing: 0, pitch: 0, zoom: 16, duration: 800 });
-              }
+              map.easeTo({
+                center: targetLngLat,
+                bearing: navMode ? (heading || 0) : 0,
+                pitch: navMode ? 50 : 0,
+                zoom: navMode ? 18.5 : 16,
+                padding: { top: navMode ? Math.round(window.innerHeight * 0.55) : 0, bottom: 0, left: 0, right: 0 },
+                duration: 600
+              });
             }
           }}
           style={{
             position: 'absolute',
-            bottom: navMode ? '120px' : '30px', 
+            bottom: navMode ? '160px' : '80px', // Pushed higher to avoid the CTA blue button
             right: '20px',
-            background: 'rgba(15, 23, 42, 0.85)',
+            background: 'rgba(15, 23, 42, 0.95)',
             backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(59, 130, 246, 0.5)',
+            border: '2px solid rgba(59, 130, 246, 0.6)',
             color: '#60a5fa',
-            padding: '12px 20px',
+            padding: '14px 22px',
             borderRadius: '99px',
-            fontWeight: 800,
-            fontSize: '14px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+            fontWeight: 900,
+            fontSize: '15px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
             cursor: 'pointer',
-            zIndex: 10,
+            zIndex: 9999, // Ensure it's on top of everything
+            pointerEvents: 'auto',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
-            pointerEvents: 'auto'
+            gap: '8px'
           }}
         >
-          🎯 RECENTRER
+          <span style={{ fontSize: '18px' }}>🎯</span> RECENTRER
         </button>
       )}
     </div>
