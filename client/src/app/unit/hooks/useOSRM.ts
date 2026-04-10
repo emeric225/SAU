@@ -34,7 +34,7 @@ export function useOSRM() {
     }
 
     // OSRM format: lng,lat;lng,lat
-    const url = `https://router.project-osrm.org/route/v1/driving/${fromPos[1]},${fromPos[0]};${toLng},${toLat}?overview=full&geometries=geojson&steps=true&language=fr`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${fromPos[1]},${fromPos[0]};${toLng},${toLat}?overview=full&geometries=geojson&steps=true`;
 
     setLoading(true);
     console.log('[OSRM] 🗺️ Fetching:', url.substring(0, 120));
