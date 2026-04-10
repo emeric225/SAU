@@ -23,6 +23,7 @@ export default function UnitTacticalPage() {
   const [routeGeoJSON, setRouteGeoJSON] = useState<any>(null);
   const [routeSteps, setRouteSteps] = useState<any[]>([]);
   const [guidance, setGuidance] = useState({ text: '', distance: 0 });
+  const activeMissionRef = useRef<any>(null);
   const [isReporting, setIsReporting] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
   
@@ -38,6 +39,9 @@ export default function UnitTacticalPage() {
   const currentStatus = unit?.status || 'offline';
   
   useTacticalSync(unit?.id, currentStatus, position, heading, speed, socket);
+
+  // Keep a ref always in sync with the mission state for async access
+  useEffect(() => { activeMissionRef.current = activeMission; }, [activeMission]);
 
   // ─── SELF-HEALING LOGIC ────────────────────────────────────────────────────
   // If unit is in a deployed state but has no mission object, reset to available
@@ -156,6 +160,61 @@ export default function UnitTacticalPage() {
   // ─── ROUTES (OSRM) ─────────────────────────────────────────────────────────
   const routeFetchedRef = useRef(false);
 
+  const fetchOSRMRoute = useCallback((pos: [number, number]) => {
+    const mission = activeMissionRef.current;
+    if (!mission) { console.warn('[TacticalOSRM] No mission in ref.'); return; }
+    if (routeFetchedRef.current) return;
+
+    // GPS Guard
+    if (Math.abs(pos[0]) < 0.1 && Math.abs(pos[1]) < 0.1) {
+      console.warn('[TacticalOSRM] Waiting for real GPS fix.');
+      return;
+    }
+
+    // Robust Coordinate Parsing
+    let destLat: number, destLng: number;
+    try {
+      const loc = typeof mission.location === 'string' ? JSON.parse(mission.location) : mission.location;
+      destLat = Number(mission.lat ?? mission.latitude ?? loc?.lat);
+      destLng = Number(mission.lng ?? mission.longitude ?? loc?.lng);
+    } catch (e) {
+      destLat = Number(mission.lat ?? mission.latitude);
+      destLng = Number(mission.lng ?? mission.longitude);
+    }
+    
+    if (!destLat || !destLng || isNaN(destLat) || isNaN(destLng)) {
+      console.error('[TacticalOSRM] Invalid destination coords:', destLat, destLng, '| Mission:', JSON.stringify(mission));
+      return;
+    }
+
+    const url = `https://router.project-osrm.org/route/v1/driving/${pos[1]},${pos[0]};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&language=fr`;
+    console.log('[TacticalOSRM] Fetching route to:', destLat, destLng, 'from', pos[0], pos[1]);
+    routeFetchedRef.current = true;
+    
+    const attempt = (retryCount = 0) => {
+      fetch(url)
+        .then(res => { if (!res.ok) throw new Error('OSRM error'); return res.json(); })
+        .then(data => {
+          if (data.routes?.[0]) {
+            console.log('[TacticalOSRM] ✅ Route received!');
+            setRouteGeoJSON(data.routes[0].geometry);
+            setRouteSteps(data.routes[0].legs[0].steps);
+          } else {
+            console.warn('[TacticalOSRM] ⚠️ No route in response');
+            if (retryCount < 3) setTimeout(() => attempt(retryCount + 1), 3000);
+            else routeFetchedRef.current = false;
+          }
+        })
+        .catch(err => {
+          console.error('[TacticalOSRM] ❌ Fetch error:', err);
+          if (retryCount < 3) setTimeout(() => attempt(retryCount + 1), 3000);
+          else routeFetchedRef.current = false;
+        });
+    };
+    attempt();
+  }, []);
+
+  // Trigger 1: Mission/Status change → start route fetch as soon as we have a position
   useEffect(() => {
     if (currentStatus !== 'en_route') {
       setRouteGeoJSON(null);
@@ -163,61 +222,22 @@ export default function UnitTacticalPage() {
       routeFetchedRef.current = false;
       return;
     }
-
-    if (!activeMission || !position || routeFetchedRef.current) return;
-
-    // GPS Guard: Ignore fetch if position is still at 0,0 or undefined
-    if (Math.abs(position[0]) < 0.1 && Math.abs(position[1]) < 0.1) {
-      console.warn('[TacticalOSRM] Waiting for real GPS fix before fetching route.');
-      return;
+    if (!activeMission) return;
+    // If we already have a valid position, fetch immediately
+    if (position && (Math.abs(position[0]) > 0.1 || Math.abs(position[1]) > 0.1)) {
+      fetchOSRMRoute(position);
     }
+    // Otherwise, the GPS trigger below will fire when position becomes valid
+  }, [currentStatus, activeMission?.id]);
 
-    // Robust Coordinate Parsing
-    let destLat, destLng;
-    try {
-      const loc = typeof activeMission.location === 'string' ? JSON.parse(activeMission.location) : activeMission.location;
-      destLat = Number(activeMission.lat ?? activeMission.latitude ?? loc?.lat);
-      destLng = Number(activeMission.lng ?? activeMission.longitude ?? loc?.lng);
-    } catch (e) {
-      destLat = Number(activeMission.lat ?? activeMission.latitude);
-      destLng = Number(activeMission.lng ?? activeMission.longitude);
-    }
-    
-    if (!destLat || !destLng || isNaN(destLat)) {
-       console.error('[TacticalOSRM] Invalid destination coords:', destLat, destLng);
-       return;
-    }
-
-    const url = `https://router.project-osrm.org/route/v1/driving/${position[1]},${position[0]};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&language=fr`;
-    
-    console.log('[TacticalOSRM] Fetching route to:', destLat, destLng);
-    routeFetchedRef.current = true;
-    
-    const fetchRoute = (retryCount = 0) => {
-      fetch(url)
-        .then(res => {
-           if (!res.ok) throw new Error('OSRM network error');
-           return res.json();
-        })
-        .then(data => {
-          if (data.routes?.[0]) {
-            console.log('[TacticalOSRM] Route received successfully');
-            setRouteGeoJSON(data.routes[0].geometry);
-            setRouteSteps(data.routes[0].legs[0].steps);
-          } else {
-            console.warn('[TacticalOSRM] No route in response');
-            if (retryCount < 2) setTimeout(() => fetchRoute(retryCount + 1), 2000);
-          }
-        })
-        .catch(err => { 
-          console.error('[TacticalOSRM] Fetch error', err);
-          if (retryCount < 2) setTimeout(() => fetchRoute(retryCount + 1), 2000);
-          else routeFetchedRef.current = false; 
-        });
-    };
-
-    fetchRoute();
-  }, [currentStatus, activeMission?.id, position]);
+  // Trigger 2: GPS position becomes valid → fetch if we're en_route and don't have a route yet
+  useEffect(() => {
+    if (currentStatus !== 'en_route') return;
+    if (!activeMission || routeFetchedRef.current) return;
+    if (!position) return;
+    if (Math.abs(position[0]) < 0.1 && Math.abs(position[1]) < 0.1) return;
+    fetchOSRMRoute(position);
+  }, [position?.[0]?.toFixed(4), position?.[1]?.toFixed(4)]);
 
   // Handle Route Guidance Update
   useEffect(() => {
@@ -320,10 +340,13 @@ export default function UnitTacticalPage() {
           mission={pendingMission}
           routeData={null}
           onAccept={() => {
-            setActiveMission(pendingMission);
-            localStorage.setItem('sau_unit_mission', JSON.stringify(pendingMission));
+            const mission = pendingMission;
+            activeMissionRef.current = mission; // Sync ref immediately for async access
+            setActiveMission(mission);
+            localStorage.setItem('sau_unit_mission', JSON.stringify(mission));
             setPendingMission(null);
-            changeStatus('en_route');
+            // Small delay to ensure React state is flushed before socket emit
+            setTimeout(() => changeStatus('en_route'), 50);
             if (Notification.permission !== 'denied') Notification.requestPermission();
           }}
           onRefuse={() => setPendingMission(null)}
