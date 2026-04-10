@@ -1,368 +1,401 @@
 'use client';
-
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
-import styles from './unit.module.css';
-
-import { UnitHeader } from './components/UnitHeader';
-import { MissionBriefing } from './components/MissionBriefing';
-import { TacticalNav } from './components/TacticalNav';
-import { ReportModal } from './components/ReportModal';
-import { TacticalMapEngine } from './components/TacticalMapEngine';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useTacticalGPS } from './hooks/useTacticalGPS';
-import { useTacticalSync } from './hooks/useTacticalSync';
+import { useOSRM } from './hooks/useOSRM';
+import { useUnitSocket } from './hooks/useUnitSocket';
 
-export const dynamic = 'force-dynamic';
+import { LoginScreen } from './components/LoginScreen';
+import { TacticalMap } from './components/TacticalMap';
+import { GuidanceBanner } from './components/GuidanceBanner';
+import { MissionBriefing } from './components/MissionBriefing';
+import { ReportModal } from './components/ReportModal';
 
-export default function UnitTacticalPage() {
-  // ─── STATE ─────────────────────────────────────────────────────────────────
-  const [unit, setUnit] = useState<any>(null);
-  const [activeMission, setActiveMission] = useState<any>(null);
-  const [pendingMission, setPendingMission] = useState<any>(null);
-  const [routeGeoJSON, setRouteGeoJSON] = useState<any>(null);
-  const [routeSteps, setRouteSteps] = useState<any[]>([]);
-  const [guidance, setGuidance] = useState({ text: '', distance: 0 });
-  const activeMissionRef = useRef<any>(null);
-  const [isReporting, setIsReporting] = useState(false);
-  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
-  
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const [audioEnabled, setAudioEnabled] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  
-  // Custom Hooks
-  const { position, heading, speed } = useTacticalGPS();
-  // Status computed: if unit is null -> logging in
-  const currentStatus = unit?.status || 'offline';
-  
-  useTacticalSync(unit?.id, currentStatus, position, heading, speed, socket);
+/* ═══════════════════════════════ TYPES ═══════════════════════════════════ */
+type UnitStatus = 'available' | 'en_route' | 'on_site';
 
-  // Keep a ref always in sync with the mission state for async access
-  useEffect(() => { activeMissionRef.current = activeMission; }, [activeMission]);
+interface Unit { id: string; name: string; status: UnitStatus; [k: string]: any; }
+interface Mission { id: string; lat: number; lng: number; type: string; name?: string; phone?: string; notes?: string; photo_url?: string; [k: string]: any; }
 
-  // ─── SELF-HEALING LOGIC ────────────────────────────────────────────────────
-  // If unit is in a deployed state but has no mission object, reset to available
-  useEffect(() => {
-    if (unit && currentStatus !== 'available' && !activeMission && !pendingMission) {
-      console.warn('[SAU] State desync detected: Deployed status without mission. Resetting...');
-      changeStatus('available');
-    }
-  }, [currentStatus, activeMission, pendingMission, unit]);
+/* ═══════════════════════════════ AUDIO ═══════════════════════════════════ */
+function useAudio() {
+  const ctxRef = useRef<AudioContext | null>(null);
 
-  // ─── INITIALIZATION (Auth & Socket) ────────────────────────────────────────
-  useEffect(() => {
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    });
+  const unlock = useCallback(() => {
+    if (!ctxRef.current) ctxRef.current = new window.AudioContext();
+    if (ctxRef.current.state === 'suspended') ctxRef.current.resume();
+  }, []);
 
-    const saved = localStorage.getItem('sau_unit');
-    if (saved) {
-      try {
-        const parsedNode = JSON.parse(saved);
-        loginUnit(parsedNode.id);
-      } catch (e) { localStorage.removeItem('sau_unit'); }
+  const beep = useCallback((freq = 880, durationS = 0.06, vol = 0.12) => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = freq; g.gain.value = vol;
+    o.start(); o.stop(ctx.currentTime + durationS);
+  }, []);
+
+  const siren = useCallback(() => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    for (let i = 0; i < 8; i++) {
+      setTimeout(() => {
+        const now = ctx.currentTime;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'square';
+        o.frequency.setValueAtTime(i % 2 === 0 ? 660 : 880, now);
+        g.gain.setValueAtTime(0.18, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(now); o.stop(now + 0.5);
+      }, i * 500);
     }
   }, []);
 
-  const [loginError, setLoginError] = useState('');
+  return { unlock, beep, siren };
+}
+
+/* ═══════════════════════════════ POSITION SYNC ═══════════════════════════ */
+function usePositionSync(
+  unitId: string | null,
+  status: UnitStatus | null,
+  position: [number,number] | null,
+  heading: number,
+  speed: number,
+  emitPosition: (lat: number, lng: number, h: number, s: number) => void,
+) {
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (!unitId || !position) return;
+
+    timerRef.current = setInterval(() => {
+      emitPosition(position[0], position[1], heading, speed);
+    }, 3000);
+
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [unitId, status, position, heading, speed]);
+}
+
+/* ═══════════════════════════════ PAGE ════════════════════════════════════ */
+export const dynamic = 'force-dynamic';
+
+export default function UnitPage() {
+  /* ── Auth & mission state ─────────────────────────────────────────── */
+  const [unit, setUnit]                   = useState<Unit | null>(null);
+  const [activeMission, setActiveMission] = useState<Mission | null>(null);
+  const activeMissionRef                  = useRef<Mission | null>(null);
+  const [pendingMission, setPendingMission] = useState<Mission | null>(null);
+  const [unitStatus, setUnitStatus]       = useState<UnitStatus>('available');
+  const [loginError, setLoginError]       = useState('');
+  const [loginLoading, setLoginLoading]   = useState(false);
+  const [isReporting, setIsReporting]     = useState(false);
+  const [viewingPhoto, setViewingPhoto]   = useState<string | null>(null);
+  const [isConnected, setIsConnected]     = useState(false);
+  const [audioReady, setAudioReady]       = useState(false);
+
+  /* Keep ref in sync for async closures */
+  useEffect(() => { activeMissionRef.current = activeMission; }, [activeMission]);
+
+  /* ── GPS ──────────────────────────────────────────────────────────── */
+  const { position, heading, speed } = useTacticalGPS();
+
+  /* ── Audio ────────────────────────────────────────────────────────── */
+  const audio = useAudio();
+
+  /* ── OSRM ─────────────────────────────────────────────────────────── */
+  const { route, fetchRoute, clearRoute } = useOSRM();
+
+  /* Current navigation guidance step */
+  const [guidanceStep, setGuidanceStep] = useState<{ text: string; distanceM: number }>({ text: '', distanceM: 0 });
+
+  useEffect(() => {
+    if (unitStatus === 'en_route' && route?.steps?.length && position) {
+      const step = route.steps.find(s => s.distance > 0) || route.steps[0];
+      setGuidanceStep({ text: step?.maneuver?.instruction || 'Continuez tout droit', distanceM: step?.distance || 0 });
+    } else {
+      setGuidanceStep({ text: '', distanceM: 0 });
+    }
+  }, [route?.steps, position, unitStatus]);
+
+  /* ── Socket ─────────────────────────────────────────────────────── */
+  const { emitStatus, emitPosition } = useUnitSocket({
+    unitId: unit?.id ?? null,
+    onConnectChange: setIsConnected,
+    onMissionReceived: (mission) => {
+      setPendingMission(mission);
+      audio.siren();
+      /* Browser notification */
+      if (Notification.permission === 'granted' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(reg => {
+          reg.showNotification(`🚨 MISSION : ${mission.type?.toUpperCase()}`, {
+            body: mission.notes || 'Déploiement immédiat',
+            icon: '/icons/icon-192x192.png',
+            vibrate: [200, 100, 200, 100, 400],
+          });
+        });
+      }
+    },
+    onUnitUpdated: (u) => {
+      if (u.status === 'available' && unitStatus !== 'available') {
+        /* Remote cancellation by HQ */
+        setUnitStatus('available');
+        setActiveMission(null);
+        activeMissionRef.current = null;
+        clearRoute();
+        alert('📻 MISSION ANNULÉE PAR LE QUARTIER GÉNÉRAL');
+      }
+      setUnit(prev => prev ? { ...prev, ...u } : null);
+    },
+  });
+
+  /* ── Position sync to dashboard ─────────────────────────────────── */
+  usePositionSync(unit?.id ?? null, unitStatus, position, heading, speed, emitPosition);
+
+  /* ── Route: fetch when status = en_route + GPS valid ────────────── */
+  const routeRequestedRef = useRef(false);
+  useEffect(() => {
+    if (unitStatus !== 'en_route') {
+      clearRoute();
+      routeRequestedRef.current = false;
+      return;
+    }
+    if (routeRequestedRef.current) return;
+    if (!activeMission || !position) return;
+    if (Math.abs(position[0]) < 0.01 && Math.abs(position[1]) < 0.01) return;
+
+    const mission = activeMission;
+    const destLat = Number(mission.lat ?? mission.latitude);
+    const destLng = Number(mission.lng ?? mission.longitude);
+    if (!destLat || !destLng) { console.error('[Route] No coords in mission', mission); return; }
+
+    routeRequestedRef.current = true;
+    fetchRoute(position, destLat, destLng);
+  }, [unitStatus, activeMission?.id, position?.[0]?.toFixed(3), position?.[1]?.toFixed(3)]);
+
+  /* ── Auth ───────────────────────────────────────────────────────── */
+  useEffect(() => {
+    const saved = localStorage.getItem('sau_unit');
+    if (!saved) return;
+    try {
+      const u = JSON.parse(saved);
+      loginUnit(u.id);
+    } catch { localStorage.removeItem('sau_unit'); }
+  }, []);
 
   const loginUnit = async (stationId: string) => {
+    setLoginLoading(true);
+    setLoginError('');
     try {
-      setLoginError('');
-      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stationId: stationId.trim() }) });
+      const res  = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stationId }) });
       const data = await res.json();
       if (data.success && data.isUnit) {
         setUnit(data.station);
+        setUnitStatus(data.station.status || 'available');
         localStorage.setItem('sau_unit', JSON.stringify(data.station));
         if (data.currentMission) {
           setActiveMission(data.currentMission);
-        } else {
-          setActiveMission(JSON.parse(localStorage.getItem('sau_unit_mission') || 'null'));
+          activeMissionRef.current = data.currentMission;
         }
-        initSocket(data.station.id);
+        if (Notification.permission !== 'denied') Notification.requestPermission();
       } else {
-        setLoginError(data.error || 'ID Tactique invalide.');
+        setLoginError(data.error || 'ID tactique invalide.');
       }
-    } catch (e) {
-      setLoginError('Serveur injoignable (Réseau ou Hors-ligne)');
+    } catch {
+      setLoginError('Serveur injoignable – vérifiez votre connexion.');
     }
+    setLoginLoading(false);
   };
 
-  const initSocket = (uid: string) => {
-    const s = io(process.env.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:3008', { transports: ['websocket', 'polling'] });
-    setSocket(s);
-    
-    s.on('connect', () => s.emit('join_room', uid));
-    
-    s.on('mission_received', (mission) => {
-      setPendingMission(mission);
-      playSiren();
-      // Push Web
-      if (Notification.permission === 'granted' && 'serviceWorker' in navigator) {
-        navigator.serviceWorker.ready.then(reg => {
-          reg.showNotification(`🚨 NOUVELLE MISSION : ${mission.type}`, { body: mission.notes || 'Déploiement immédiat', icon: '/icons/icon-192x192.png', vibrate: [200, 100, 200] });
-        });
-      }
-    });
-
-    s.on('unit_updated', (u: any) => {
-      if (u.id === uid) {
-        setUnit((prev: any) => ({ ...prev, status: u.status }));
-        if (u.status === 'available') {
-          setActiveMission((prev: any) => {
-            if (prev) alert('MISSION ANNULÉE PAR LE QUARTIER GÉNÉRAL.');
-            return null;
-          });
-          localStorage.removeItem('sau_unit_mission');
-        }
-      }
-    });
-  };
-
-  // ─── AUDIO SYSTEM ────────────────────────────────────────────────────────
-  const initAudio = () => { 
-    if (!audioCtxRef.current) audioCtxRef.current = new window.AudioContext(); 
-    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
-    setAudioEnabled(true);
-    
-    // Tiny tactical confirmation beep
-    const o = audioCtxRef.current.createOscillator();
-    const g = audioCtxRef.current.createGain();
-    o.connect(g); g.connect(audioCtxRef.current.destination);
-    o.frequency.value = 1200; g.gain.value = 0.1;
-    o.start(); o.stop(audioCtxRef.current.currentTime + 0.05);
-  };
-  
-  const playSiren = () => {
-    const ctx = audioCtxRef.current;
-    if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume();
-    let count = 0;
-    const interval = setInterval(() => {
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(count % 2 === 0 ? 600 : 900, now);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now); osc.stop(now + 0.5);
-      if (++count >= 16) clearInterval(interval);
-    }, 500);
-  };
-
-  // ─── ROUTES (OSRM) ─────────────────────────────────────────────────────────
-  const routeFetchedRef = useRef(false);
-
-  const fetchOSRMRoute = useCallback((pos: [number, number]) => {
-    const mission = activeMissionRef.current;
-    if (!mission) { console.warn('[TacticalOSRM] No mission in ref.'); return; }
-    if (routeFetchedRef.current) return;
-
-    // GPS Guard
-    if (Math.abs(pos[0]) < 0.1 && Math.abs(pos[1]) < 0.1) {
-      console.warn('[TacticalOSRM] Waiting for real GPS fix.');
-      return;
-    }
-
-    // Robust Coordinate Parsing
-    let destLat: number, destLng: number;
-    try {
-      const loc = typeof mission.location === 'string' ? JSON.parse(mission.location) : mission.location;
-      destLat = Number(mission.lat ?? mission.latitude ?? loc?.lat);
-      destLng = Number(mission.lng ?? mission.longitude ?? loc?.lng);
-    } catch (e) {
-      destLat = Number(mission.lat ?? mission.latitude);
-      destLng = Number(mission.lng ?? mission.longitude);
-    }
-    
-    if (!destLat || !destLng || isNaN(destLat) || isNaN(destLng)) {
-      console.error('[TacticalOSRM] Invalid destination coords:', destLat, destLng, '| Mission:', JSON.stringify(mission));
-      return;
-    }
-
-    const url = `https://router.project-osrm.org/route/v1/driving/${pos[1]},${pos[0]};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&language=fr`;
-    console.log('[TacticalOSRM] Fetching route to:', destLat, destLng, 'from', pos[0], pos[1]);
-    routeFetchedRef.current = true;
-    
-    const attempt = (retryCount = 0) => {
-      fetch(url)
-        .then(res => { if (!res.ok) throw new Error('OSRM error'); return res.json(); })
-        .then(data => {
-          if (data.routes?.[0]) {
-            console.log('[TacticalOSRM] ✅ Route received!');
-            setRouteGeoJSON(data.routes[0].geometry);
-            setRouteSteps(data.routes[0].legs[0].steps);
-          } else {
-            console.warn('[TacticalOSRM] ⚠️ No route in response');
-            if (retryCount < 3) setTimeout(() => attempt(retryCount + 1), 3000);
-            else routeFetchedRef.current = false;
-          }
-        })
-        .catch(err => {
-          console.error('[TacticalOSRM] ❌ Fetch error:', err);
-          if (retryCount < 3) setTimeout(() => attempt(retryCount + 1), 3000);
-          else routeFetchedRef.current = false;
-        });
-    };
-    attempt();
-  }, []);
-
-  // Trigger 1: Mission/Status change → start route fetch as soon as we have a position
-  useEffect(() => {
-    if (currentStatus !== 'en_route') {
-      setRouteGeoJSON(null);
-      setRouteSteps([]);
-      routeFetchedRef.current = false;
-      return;
-    }
-    if (!activeMission) return;
-    // If we already have a valid position, fetch immediately
-    if (position && (Math.abs(position[0]) > 0.1 || Math.abs(position[1]) > 0.1)) {
-      fetchOSRMRoute(position);
-    }
-    // Otherwise, the GPS trigger below will fire when position becomes valid
-  }, [currentStatus, activeMission?.id]);
-
-  // Trigger 2: GPS position becomes valid → fetch if we're en_route and don't have a route yet
-  useEffect(() => {
-    if (currentStatus !== 'en_route') return;
-    if (!activeMission || routeFetchedRef.current) return;
-    if (!position) return;
-    if (Math.abs(position[0]) < 0.1 && Math.abs(position[1]) < 0.1) return;
-    fetchOSRMRoute(position);
-  }, [position?.[0]?.toFixed(4), position?.[1]?.toFixed(4)]);
-
-  // Handle Route Guidance Update
-  useEffect(() => {
-    if (currentStatus === 'en_route' && routeSteps.length > 0 && position) {
-      // Find nearest step (Simplification)
-      const nextStep = routeSteps.find((step, i) => i === routeSteps.length - 1 || step.distance > 0) || routeSteps[0];
-      setGuidance({ text: nextStep.maneuver?.instruction || 'Continuez tout droit', distance: Math.max(0, Math.round(nextStep.distance)) });
-    }
-  }, [position, routeSteps, currentStatus]);
-
-  // ─── ACTION HANDLERS ───────────────────────────────────────────────────────
-  const changeStatus = (newStatus: string) => {
-    if (!socket || !unit) return;
-    const payload: any = { unitId: unit.id, status: newStatus, alertId: activeMission?.id };
-    socket.emit('unit_status_update', payload);
-    setUnit({ ...unit, status: newStatus });
+  /* ── Status transitions ─────────────────────────────────────────── */
+  const changeStatus = useCallback((newStatus: UnitStatus) => {
+    setUnitStatus(newStatus);
+    setUnit(prev => prev ? { ...prev, status: newStatus } : null);
+    emitStatus(newStatus, activeMissionRef.current?.id);
     if (newStatus === 'available') {
       setActiveMission(null);
+      activeMissionRef.current = null;
+      clearRoute();
       localStorage.removeItem('sau_unit_mission');
     }
-  };
+  }, [emitStatus, clearRoute]);
 
-  // ─── RENDER ────────────────────────────────────────────────────────────────
+  /* ── Mission accept ─────────────────────────────────────────────── */
+  const acceptMission = useCallback((mission: Mission) => {
+    activeMissionRef.current = mission;
+    setActiveMission(mission);
+    localStorage.setItem('sau_unit_mission', JSON.stringify(mission));
+    setPendingMission(null);
+    audio.beep(1200, 0.08);
+    setTimeout(() => changeStatus('en_route'), 80);
+  }, [audio, changeStatus]);
+
+  /* ─────────────────────────── RENDER ──────────────────────────────── */
   if (!unit) {
     return (
-      <div className={styles.loginContainer} onClick={initAudio}>
-        <div className={styles.loginCard}>
-          <div className={styles.logo}>SAU <span style={{fontSize: 20}}>TACTICAL</span></div>
-          <h1 className={styles.loginTitle}>IDENTIFICATION</h1>
-          <p className={styles.loginSub}>Saisissez l'ID tactique de votre unité</p>
-          {loginError && <div style={{ color: '#ef4444', marginBottom: 12, fontWeight: 'bold' }}>{loginError}</div>}
-          <form onSubmit={e => { e.preventDefault(); loginUnit((e.target as any).uid.value); }}>
-            <input name="uid" className={styles.loginInput} placeholder="Ex: AMB-01" required autoComplete="off" />
-            <button type="submit" className={styles.combatBtnXxl} style={{ background: 'var(--tk-accent-blue)', color: '#fff' }}>CONNEXION</button>
-          </form>
-        </div>
+      <div onClick={() => { audio.unlock(); setAudioReady(true); }} style={{ minHeight: '100dvh' }}>
+        <LoginScreen onLogin={loginUnit} error={loginError} loading={loginLoading} />
       </div>
     );
   }
 
-  // Get destination array
-  const destCoords = activeMission ? [
-    Number(activeMission.lat ?? activeMission.latitude ?? activeMission.location?.lat),
-    Number(activeMission.lng ?? activeMission.longitude ?? activeMission.location?.lng)
-  ] as [number, number] : null;
+  const destCoords: [number, number] | null = activeMission
+    ? [Number(activeMission.lat ?? activeMission.latitude), Number(activeMission.lng ?? activeMission.longitude)]
+    : null;
+
+  const isDeployed = unitStatus === 'en_route' || unitStatus === 'on_site';
 
   return (
-    <div className={styles.unitContainer}>
-      <UnitHeader 
-        unit={unit} 
-        isOnline={!!socket?.connected} 
-        socketConnected={!!socket?.connected}
-        syncing={isSyncing}
-        audioEnabled={audioEnabled}
-        onActivateAudio={initAudio}
-        onLogout={() => { localStorage.removeItem('sau_unit'); setUnit(null); }} 
-        deferredPrompt={deferredPrompt}
-        onInstall={() => {
-          if (deferredPrompt) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
-          }
-        }}
-      />
+    <div
+      onClick={() => { audio.unlock(); setAudioReady(true); }}
+      style={{ position: 'fixed', inset: 0, background: '#060c1a', fontFamily: "'Inter', system-ui, sans-serif" }}
+    >
+      {/* ── Map ── */}
+      {position ? (
+        <TacticalMap
+          center={position}
+          heading={heading}
+          speed={speed}
+          navMode={unitStatus === 'en_route'}
+          destination={destCoords}
+          routeGeoJSON={route?.geometry ?? null}
+        />
+      ) : (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 16,
+          color: '#475569', fontSize: 13, letterSpacing: 2,
+        }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', border: '3px solid #1d4ed8', borderTopColor: 'transparent', animation: 'spin 1s linear infinite' }} />
+          ACQUISITION SATELLITE...
+        </div>
+      )}
 
-      <main className={styles.mapArea}>
-        {position ? (
-          <TacticalMapEngine
-            center={position}
-            heading={heading}
-            speed={speed}
-            navMode={currentStatus === 'en_route'}
-            destination={destCoords}
-            routeGeoJSON={routeGeoJSON}
-          />
-        ) : (
-          <div className={styles.gpsLoader}>
-            <div className={styles.gpsSpinner} />
-            ACQUISITION SATELLITE...
-          </div>
-        )}
-      </main>
-
-      {/* Guidance Banner & Action Buttons */}
-      <TacticalNav 
-        status={currentStatus} 
-        nextInstruction={guidance.text} 
-        distanceToInstruction={guidance.distance} 
-        missionType={activeMission?.type} 
-        locationName={activeMission?.name} 
-        onActionClick={() => {
-          if (currentStatus === 'en_route') changeStatus('on_site');
-          else if (currentStatus === 'on_site') setIsReporting(true);
-        }} 
-      />
-
-      {/* Briefing Popup */}
-      {pendingMission && (
-        <MissionBriefing
-          mission={pendingMission}
-          routeData={null}
-          onAccept={() => {
-            const mission = pendingMission;
-            activeMissionRef.current = mission; // Sync ref immediately for async access
-            setActiveMission(mission);
-            localStorage.setItem('sau_unit_mission', JSON.stringify(mission));
-            setPendingMission(null);
-            // Small delay to ensure React state is flushed before socket emit
-            setTimeout(() => changeStatus('en_route'), 50);
-            if (Notification.permission !== 'denied') Notification.requestPermission();
-          }}
-          onRefuse={() => setPendingMission(null)}
-          onViewPhoto={(url) => setViewingPhoto(url)}
+      {/* ── Guidance banner (only when deployed) ── */}
+      {isDeployed && (
+        <GuidanceBanner
+          status={unitStatus as 'en_route' | 'on_site'}
+          instruction={guidanceStep.text}
+          distanceM={guidanceStep.distanceM}
+          missionType={activeMission?.type}
         />
       )}
 
-      {/* Wrap Up Report */}
+      {/* ── HUD top-right: status + call ── */}
+      {!isDeployed && (
+        <div style={{
+          position: 'absolute', top: 'env(safe-area-inset-top, 12px)', right: 16, zIndex: 50,
+          display: 'flex', gap: 8, alignItems: 'center',
+        }}>
+          <div style={{
+            padding: '6px 12px', borderRadius: 99, fontSize: 11, fontWeight: 700, letterSpacing: 1,
+            background: isConnected ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+            border: `1px solid ${isConnected ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'}`,
+            color: isConnected ? '#34d399' : '#f87171',
+          }}>
+            {isConnected ? '● LIAISON OK' : '○ RECONNEXION'}
+          </div>
+          <div style={{
+            padding: '6px 12px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8',
+          }}>
+            {unit.name}
+          </div>
+          <button
+            onClick={() => { localStorage.removeItem('sau_unit'); setUnit(null); }}
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '6px 10px', color: '#64748b', cursor: 'pointer', fontSize: 16 }}
+            title="Déconnexion"
+          >🚪</button>
+        </div>
+      )}
+
+      {/* ── Audio unlock banner ── */}
+      {!audioReady && (
+        <div
+          onClick={() => { audio.unlock(); setAudioReady(true); }}
+          style={{
+            position: 'absolute', top: isDeployed ? 90 : 56, left: 0, right: 0, zIndex: 60,
+            background: 'rgba(37,99,235,0.9)', padding: '10px 16px',
+            textAlign: 'center', fontSize: 13, color: '#fff', fontWeight: 700, letterSpacing: 1,
+            cursor: 'pointer',
+          }}
+        >
+          🔊 APPUYEZ POUR ACTIVER LE SON TACTIQUE
+        </div>
+      )}
+
+      {/* ── Action button (bottom, contextual) ── */}
+      {isDeployed && (
+        <div style={{ position: 'absolute', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)', left: 16, right: 16, zIndex: 50, display: 'flex', gap: 12 }}>
+          {/* Call button */}
+          {activeMission?.phone && (
+            <a
+              href={`tel:${activeMission.phone}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 64, height: 64, borderRadius: 20, flexShrink: 0,
+                background: 'rgba(16,185,129,0.15)', border: '2px solid rgba(16,185,129,0.5)',
+                fontSize: 26, textDecoration: 'none',
+              }}
+            >📞</a>
+          )}
+          {/* Main action */}
+          <button
+            onClick={() => {
+              if (unitStatus === 'en_route') changeStatus('on_site');
+              else if (unitStatus === 'on_site') setIsReporting(true);
+            }}
+            style={{
+              flex: 1, padding: '18px', borderRadius: 20, border: 'none',
+              background: unitStatus === 'en_route'
+                ? 'linear-gradient(135deg, #1d4ed8, #2563eb)'
+                : 'linear-gradient(135deg, #059669, #10b981)',
+              color: '#fff', fontSize: 18, fontWeight: 900, letterSpacing: 1,
+              cursor: 'pointer',
+              boxShadow: unitStatus === 'en_route'
+                ? '0 8px 32px rgba(37,99,235,0.45)'
+                : '0 8px 32px rgba(5,150,105,0.45)',
+            }}
+          >
+            {unitStatus === 'en_route' ? '📍 NOUS SOMMES SUR PLACE' : '📋 CLÔTURER L\'INTERVENTION'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Pending mission briefing ── */}
+      {pendingMission && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 100,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'flex-end',
+        }}>
+          <MissionBriefing
+            mission={pendingMission}
+            routeData={null}
+            onAccept={() => acceptMission(pendingMission)}
+            onRefuse={() => setPendingMission(null)}
+            onViewPhoto={setViewingPhoto}
+          />
+        </div>
+      )}
+
+      {/* ── Report modal ── */}
       {isReporting && (
-        <div className={styles.modalOverlay}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center' }}>
           <ReportModal
             mission={activeMission}
             onCancel={() => setIsReporting(false)}
             onSubmit={async (data) => {
               try {
-                await fetch(`/api/alerts/${activeMission.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: 'resolved', report: data }) });
+                await fetch(`/api/alerts/${activeMission?.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'resolved', report: data }),
+                });
                 changeStatus('available');
                 setIsReporting(false);
               } catch (e) { console.error(e); }
@@ -371,12 +404,22 @@ export default function UnitTacticalPage() {
         </div>
       )}
 
-      {/* Photo view */}
+      {/* ── Photo viewer ── */}
       {viewingPhoto && (
-         <div className={styles.photoViewerOverlay} onClick={() => setViewingPhoto(null)}>
-           <img src={viewingPhoto} alt="Situation" style={{ maxWidth:'100%', maxHeight:'80vh', borderRadius:16 }} />
-         </div>
+        <div
+          onClick={() => setViewingPhoto(null)}
+          style={{ position: 'absolute', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={viewingPhoto} alt="Situation" style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 16 }} />
+        </div>
       )}
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        body { overscroll-behavior: none; }
+      `}</style>
     </div>
   );
 }
