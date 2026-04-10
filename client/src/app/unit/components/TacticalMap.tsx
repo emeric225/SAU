@@ -149,43 +149,96 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     })();
   }, [destination?.[0], destination?.[1]]);
 
-  /* ── 4. Camera + marker position every GPS update ────────────────────── */
+  const [isFollowing, setIsFollowing] = React.useState(true);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
 
-    const lngLat: [number, number] = [center[1], center[0]];
+    // Detect user interactions to stop following
+    const onDragStart = () => setIsFollowing(false);
+    map.on('dragstart', onDragStart);
+    map.on('touchstart', onDragStart);
 
-    // Update vehicle marker
-    if (vehicleRef.current) {
-      vehicleRef.current.setLngLat(lngLat);
-      vehicleRef.current.setRotation(heading);
-    }
+    return () => {
+      map.off('dragstart', onDragStart);
+      map.off('touchstart', onDragStart);
+    };
+  }, []);
 
-    if (navMode) {
-      // Heading-up: smooth bearing towards heading, pitch 45°, unit in lower-quarter.
-      // ⚠️ IMPORTANT: Only rotate the map if the user is actually moving (speed > 1.5 m/s or ~5.4 km/h).
-      // When stopped, GPS bearing jumps randomly and causes aggressive map spinning.
-      let targetBearing = map.getBearing();
-      if (speed && speed > 1.5 && heading !== null && heading >= 0) {
-        const delta = ((heading - targetBearing + 540) % 360) - 180;
-        targetBearing += delta * 0.35;
+  /* ── 4. Smooth Marker Interpolation & Camera ───────────────────────── */
+  const animRef = useRef<number>(0);
+  const currentPosRef = useRef<{ lat: number; lng: number; heading: number } | null>(null);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+
+    const targetLngLat: [number, number] = [center[1], center[0]];
+    const targetHeading = heading || 0;
+
+    // First time setup
+    if (!currentPosRef.current) {
+      currentPosRef.current = { lat: center[0], lng: center[1], heading: targetHeading };
+      if (vehicleRef.current) {
+        vehicleRef.current.setLngLat(targetLngLat);
+        vehicleRef.current.setRotation(targetHeading);
       }
-      
-      map.easeTo({
-        center: lngLat,
-        bearing: targetBearing,
-        pitch: 50,
-        zoom: (speed && speed * 3.6 > 12) ? 17 : 18.5,
-        padding: { top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 },
-        duration: 900,
-        easing: (t: number) => t * (2 - t),
-      });
-    } else {
-      map.easeTo({ center: lngLat, bearing: 0, pitch: 0, zoom: 16, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 800 });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [center[0], center[1], heading, speed, navMode]);
+
+    const startLat = currentPosRef.current.lat;
+    const startLng = currentPosRef.current.lng;
+    const startHeading = currentPosRef.current.heading;
+
+    let deltaHeading = ((targetHeading - startHeading + 540) % 360) - 180;
+    const duration = 900;
+    const startTime = performance.now();
+
+    cancelAnimationFrame(animRef.current);
+
+    const animate = (time: number) => {
+      let progress = (time - startTime) / duration;
+      if (progress > 1) progress = 1;
+      const ease = progress * (2 - progress);
+
+      const currentLat = startLat + (center[0] - startLat) * ease;
+      const currentLng = startLng + (center[1] - startLng) * ease;
+      const currentHdn = startHeading + deltaHeading * ease;
+
+      if (vehicleRef.current) {
+        vehicleRef.current.setLngLat([currentLng, currentLat]);
+        vehicleRef.current.setRotation(currentHdn);
+      }
+
+      currentPosRef.current = { lat: currentLat, lng: currentLng, heading: currentHdn };
+
+      if (progress < 1) animRef.current = requestAnimationFrame(animate);
+    };
+    animRef.current = requestAnimationFrame(animate);
+
+    /* Camera Sync */
+    if (isFollowing) {
+      let targetBearing = map.getBearing();
+      if (navMode) {
+        if (speed && speed > 1.5) {
+          const bearingDelta = ((targetHeading - targetBearing + 540) % 360) - 180;
+          targetBearing += bearingDelta * 0.35;
+        }
+        map.easeTo({
+          center: targetLngLat,
+          bearing: targetBearing,
+          pitch: 50,
+          zoom: (speed && speed * 3.6 > 12) ? 17 : 18.5,
+          padding: { top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 },
+          duration: 900,
+          easing: (t: number) => t * (2 - t),
+        });
+      } else {
+        map.easeTo({ center: targetLngLat, bearing: 0, pitch: 0, zoom: 16, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 800 });
+      }
+    }
+
+  }, [center[0], center[1], heading, speed, navMode, isFollowing]);
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
@@ -195,6 +248,53 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
         position: 'absolute', inset: 0, pointerEvents: 'none',
         background: 'radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(0,0,0,0.55) 100%)',
       }} />
+      
+      {/* Recenter Button */}
+      {!isFollowing && (
+        <button
+          onClick={() => {
+            setIsFollowing(true);
+            const map = mapRef.current;
+            if (map) {
+              const targetLngLat: [number, number] = [center[1], center[0]];
+              if (navMode) {
+                map.easeTo({
+                  center: targetLngLat,
+                  bearing: heading || 0,
+                  pitch: 50,
+                  zoom: 18.5,
+                  padding: { top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 },
+                  duration: 800
+                });
+              } else {
+                map.easeTo({ center: targetLngLat, bearing: 0, pitch: 0, zoom: 16, duration: 800 });
+              }
+            }
+          }}
+          style={{
+            position: 'absolute',
+            bottom: navMode ? '120px' : '30px', 
+            right: '20px',
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(59, 130, 246, 0.5)',
+            color: '#60a5fa',
+            padding: '12px 20px',
+            borderRadius: '99px',
+            fontWeight: 800,
+            fontSize: '14px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+            cursor: 'pointer',
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            pointerEvents: 'auto'
+          }}
+        >
+          🎯 RECENTRER
+        </button>
+      )}
     </div>
   );
 };
