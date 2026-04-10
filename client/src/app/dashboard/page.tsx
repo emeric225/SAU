@@ -205,6 +205,23 @@ export default function Dashboard() {
     } catch (err) { console.error('[Assign]', err); }
   };
 
+  const cancelUnitMission = (alertId: string, stationId?: string) => {
+    if (!confirm('Voulez-vous vraiment annuler l\'intervention de cette unité ?')) return;
+    
+    // Remettre l'alerte en pending
+    fetch(`/api/alerts/${alertId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'pending', station_id: null }) })
+      .then(() => fetchData());
+    
+    // Renvoyer l'unité à sa base via socket, en forçant au dashboard de chercher l'unité assignée a cet alert (ou juste renvoyer aux unités correspondantes)
+    if (stationId) {
+      // Trouver l'unité actuellement deployée pour cette alerte (si attachée à cette station et pas available)
+      const deployedUnits = units.filter(u => u.station_id === stationId && u.status !== 'available');
+      deployedUnits.forEach(u => {
+        socket.emit('unit_status_update', { unitId: u.id, status: 'available', alertId: null });
+      });
+    }
+  };
+
   // ─── Actions Casernes ─────────────────────────────────────────────────────────
   const createOrUpdateStation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -502,6 +519,17 @@ export default function Dashboard() {
                           <p><strong>Bilan:</strong> {a.report.victimes}</p>
                         </div>
                       )}
+                      
+                      {a.status === 'dispatched' && (
+                        <div style={{ marginTop: 12 }}>
+                          <button 
+                            onClick={e => { e.stopPropagation(); cancelUnitMission(a.id, a.station_id); }}
+                            style={{ width: '100%', background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', border: '1px solid #ef4444', padding: '8px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                          >
+                            ✖ ANNULER L'INTERVENTION DE L'UNITÉ
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </>
@@ -663,8 +691,16 @@ export default function Dashboard() {
                           </select>
                         )}
                         {(a.status === 'dispatched' || a.status === 'en_route') && (
-                          <div style={{ padding: '8px', textAlign: 'center', fontWeight: 700, color: '#10b981', background: 'rgba(16,185,129,0.1)', borderRadius: 6, fontSize: 13 }}>
-                            ✓ Unité en intervention
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                            <div style={{ padding: '8px', textAlign: 'center', fontWeight: 700, color: '#10b981', background: 'rgba(16,185,129,0.1)', borderRadius: 6, fontSize: 13 }}>
+                              ✓ Unité {a.status === 'en_route' ? 'en approche' : 'engagée'}
+                            </div>
+                            <button 
+                              onClick={e => { e.stopPropagation(); cancelUnitMission(a.id, a.station_id); }}
+                              style={{ width: '100%', background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', border: '1px solid #ef4444', padding: '8px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: 12 }}
+                            >
+                              ✖ ANNULER (RETOUR À LA BASE)
+                            </button>
                           </div>
                         )}
                       </div>

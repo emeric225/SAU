@@ -84,7 +84,16 @@ export default function UnitTacticalPage() {
     });
 
     s.on('unit_updated', (u: any) => {
-      if (u.id === uid) setUnit((prev: any) => ({ ...prev, status: u.status }));
+      if (u.id === uid) {
+        setUnit((prev: any) => ({ ...prev, status: u.status }));
+        if (u.status === 'available') {
+          setActiveMission((prev: any) => {
+            if (prev) alert('MISSION ANNULÉE PAR LE QUARTIER GÉNÉRAL.');
+            return null;
+          });
+          localStorage.removeItem('sau_unit_mission');
+        }
+      }
     });
   };
 
