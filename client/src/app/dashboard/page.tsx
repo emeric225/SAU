@@ -208,18 +208,16 @@ export default function Dashboard() {
   const cancelUnitMission = (alertId: string, stationId?: string) => {
     if (!confirm('Voulez-vous vraiment annuler l\'intervention de cette unité ?')) return;
     
-    // Remettre l'alerte en pending
-    fetch(`/api/alerts/${alertId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'pending', station_id: null }) })
-      .then(() => fetchData());
-    
-    // Renvoyer l'unité à sa base via socket, en forçant au dashboard de chercher l'unité assignée a cet alert (ou juste renvoyer aux unités correspondantes)
-    if (stationId) {
-      // Trouver l'unité actuellement deployée pour cette alerte (si attachée à cette station et pas available)
-      const deployedUnits = units.filter(u => u.station_id === stationId && u.status !== 'available');
-      deployedUnits.forEach(u => {
-        socket.emit('unit_status_update', { unitId: u.id, status: 'available', alertId: null });
-      });
-    }
+    // Remettre l'alerte en pending. Le backend s'occupera de libérer l'unité.
+    fetch(`/api/alerts/${alertId}`, { 
+      method: 'PATCH', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ status: 'pending', station_id: null, assigned_unit_id: null }) 
+    })
+    .then(() => {
+      fetchData();
+    })
+    .catch(err => console.error('[Cancel]', err));
   };
 
   // ─── Actions Casernes ─────────────────────────────────────────────────────────

@@ -161,20 +161,27 @@ export default function UnitTacticalPage() {
     const destLat = Number(lat ?? latitude ?? location?.lat);
     const destLng = Number(lng ?? longitude ?? location?.lng);
     
-    if (!destLat || !destLng) return;
+    if (!destLat || !destLng || isNaN(destLat)) return;
 
     const url = `https://router.project-osrm.org/route/v1/driving/${position[1]},${position[0]};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&language=fr`;
     
+    console.log('[TacticalOSRM] Fetching route to:', destLat, destLng);
     routeFetchedRef.current = true;
     fetch(url)
       .then(res => res.json())
       .then(data => {
         if (data.routes?.[0]) {
+          console.log('[TacticalOSRM] Route received');
           setRouteGeoJSON(data.routes[0].geometry);
           setRouteSteps(data.routes[0].legs[0].steps);
+        } else {
+          console.warn('[TacticalOSRM] No route found in response');
         }
-      }).catch(() => { routeFetchedRef.current = false; });
-  }, [currentStatus, activeMission?.id, position]);
+      }).catch(err => { 
+        console.error('[TacticalOSRM] Fetch error', err);
+        routeFetchedRef.current = false; 
+      });
+  }, [currentStatus, activeMission?.id, !!position]);
 
   // Handle Route Guidance Update
   useEffect(() => {

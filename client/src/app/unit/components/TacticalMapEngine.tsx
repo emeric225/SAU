@@ -74,12 +74,14 @@ export const TacticalMapEngine: React.FC<TacticalMapProps> = ({
     if (!map) return;
 
     const applyRoute = () => {
+      // Style must be ready
       if (!map.isStyleLoaded()) return;
 
+      // Clean up if no route or not in nav mode
       if (!routeGeoJSON || !navMode) {
-        if (map.getSource('sau-route-src')) {
-          (map.getSource('sau-route-src') as any).setData({ type: 'FeatureCollection', features: [] });
-        }
+        if (map.getLayer('sau-route-line')) map.removeLayer('sau-route-line');
+        if (map.getLayer('sau-route-casing')) map.removeLayer('sau-route-casing');
+        if (map.getSource('sau-route-src')) map.removeSource('sau-route-src');
         return;
       }
 
@@ -90,22 +92,34 @@ export const TacticalMapEngine: React.FC<TacticalMapProps> = ({
           (map.getSource('sau-route-src') as any).setData(geojson);
         } else {
           map.addSource('sau-route-src', { type: 'geojson', data: geojson });
+        }
+
+        // Always check layers if they exist - MapLibre sometimes clears layers but keeps sources during style changes
+        if (!map.getLayer('sau-route-casing')) {
           map.addLayer({
             id: 'sau-route-casing', type: 'line', source: 'sau-route-src',
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: { 'line-color': '#1e3a8a', 'line-width': 18, 'line-opacity': 0.4 },
           });
+        }
+        if (!map.getLayer('sau-route-line')) {
           map.addLayer({
             id: 'sau-route-line', type: 'line', source: 'sau-route-src',
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: { 'line-color': '#3b82f6', 'line-width': 8, 'line-opacity': 1 },
           });
         }
-      } catch (err) { console.warn('Layer route error', err); }
+      } catch (err) { 
+        console.warn('[TacticalMap] Layer sync error:', err);
+      }
     };
 
     if (map.isStyleLoaded()) applyRoute();
-    else map.once('load', applyRoute);
+    map.on('styledata', applyRoute); // More reliable than once('load') for source/layer management
+
+    return () => {
+      map.off('styledata', applyRoute);
+    };
   }, [routeGeoJSON, navMode]);
 
   // Update Camera & Markers (Interpolation at 60fps)

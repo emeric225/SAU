@@ -298,6 +298,22 @@ app.patch('/api/alerts/:id', async (req, res) => {
       return res.status(404).json({ error: "Alerte introuvable ou déjà clôturée (ID invalide)." });
     }
 
+    // --- MISSION CANCELLATION LOGIC ---
+    if (status === 'pending') {
+      // If the alert is set back to pending, we must free the unit that was potentially assigned
+      const assignedUnitId = alert.assigned_unit_id;
+      if (assignedUnitId) {
+        const { data: unit } = await supabase
+          .from('units')
+          .update({ status: 'available' })
+          .eq('id', assignedUnitId)
+          .select()
+          .single();
+        
+        if (unit) io.emit('unit_updated', unit);
+      }
+    }
+
     io.emit('alert_updated', alert);
     res.json(alert);
   } catch (err) { 
