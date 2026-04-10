@@ -102,6 +102,7 @@ app.get('/api/ping', (req, res) => res.status(200).send('pong'));
 // Track units sending real GPS to disable simulations
 const gpsActiveUnits = new Set();
 const simulationIntervals = new Map();
+const lastDbUpdate = new Map(); // Performance: Throttling DB writes
 const SELF_URL = process.env.SELF_URL || `http://localhost:${process.env.PORT || 3008}`;
 
 setInterval(async () => {
@@ -395,38 +396,35 @@ io.on('connection', (socket) => {
     io.to('admin').emit('unit_transit', data);
   });
 
-  socket.on('update_unit_position', async (data) => {
-    // data: { unitId, lat, lng, heading, speed, timestamp }
-    if (!data.unitId) return;
-    gpsActiveUnits.add(data.unitId);
+  socket.on('unit_moved', async (data) => {
+    // data: { id, lat, lng, heading, speed }
+    const unitId = data.id || data.unitId;
+    if (!unitId) return;
     
-    // Stop simulation for this unit
-    if (simulationIntervals.has(data.unitId)) {
-      clearInterval(simulationIntervals.get(data.unitId));
-      simulationIntervals.delete(data.unitId);
-      console.log(`[SAU] 🛑 Simulation arrêtée pour l'unité ${data.unitId} (GPS réel détecté)`);
+    // 1. INSTANT BROADCAST (Pour le Dashboard - Pas de coût DB)
+    io.emit('unit_moved', { ...data, id: unitId });
+
+    // 2. THROTTLED PERSISTENCE (Supabase - Toutes les 30s)
+    const now = Date.now();
+    const lastUpdate = lastDbUpdate.get(unitId) || 0;
+    
+    if (now - lastUpdate > 30000) {
+      lastDbUpdate.set(unitId, now);
+      try {
+        await supabase
+          .from('units')
+          .update({ lat: data.lat, lng: data.lng })
+          .eq('id', unitId);
+      } catch (err) {
+        console.error('[SAU] Erreur de synchronisation DB:', err.message);
+      }
     }
 
-    // 1. Update Unit Table (Last known position)
-    const { data: unit } = await supabase
-      .from('units')
-      .update({ lat: data.lat, lng: data.lng })
-      .eq('id', data.unitId)
-      .select()
-      .single();
-
-    // 2. High Frequency Tracking (positions_unites)
-    await supabase.from('positions_unites').insert([{
-      unit_id: data.unitId,
-      lat: data.lat,
-      lng: data.lng,
-      heading: data.heading || 0,
-      speed: data.speed || 0,
-      timestamp: data.timestamp || new Date().toISOString()
-    }]);
-
-    if (unit) {
-      io.emit('unit_moved', unit); // inform map
+    // Gestion de la logique GPS
+    gpsActiveUnits.add(unitId);
+    if (simulationIntervals.has(unitId)) {
+      clearInterval(simulationIntervals.get(unitId));
+      simulationIntervals.delete(unitId);
     }
   });
 
