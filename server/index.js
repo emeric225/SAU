@@ -273,11 +273,19 @@ app.get('/api/messages', async (req, res) => {
 // PATCH /api/alerts/:id
 app.patch('/api/alerts/:id', async (req, res) => {
   const { id } = req.params;
-  const { status, station_id, notes, report } = req.body;
+  const { status, station_id, notes, report, assigned_unit_id } = req.body;
   try {
+    // 1. Important: Get current alert state to know which unit was assigned before updating
+    const { data: existingAlert } = await supabase
+      .from('alerts')
+      .select('assigned_unit_id')
+      .eq('id', id)
+      .maybeSingle();
+
     const updateData = {};
     if (status) updateData.status = status;
-    if (station_id) updateData.station_id = station_id;
+    if (station_id !== undefined) updateData.station_id = station_id;
+    if (assigned_unit_id !== undefined) updateData.assigned_unit_id = assigned_unit_id;
     if (notes !== undefined) updateData.notes = notes;
     if (report) updateData.report = report; // Pass the object directly for JSONB columns!
     if (status === 'resolved') updateData.resolved_at = new Date().toISOString();
@@ -300,15 +308,15 @@ app.patch('/api/alerts/:id', async (req, res) => {
 
     // --- MISSION CANCELLATION LOGIC ---
     if (status === 'pending') {
-      // If the alert is set back to pending, we must free the unit that was potentially assigned
-      const assignedUnitId = alert.assigned_unit_id;
-      if (assignedUnitId) {
+      // Use the ID from BEFORE the update to find who to notify
+      const unitToReset = existingAlert?.assigned_unit_id;
+      if (unitToReset) {
         const { data: unit } = await supabase
           .from('units')
           .update({ status: 'available' })
-          .eq('id', assignedUnitId)
+          .eq('id', unitToReset)
           .select()
-          .single();
+          .maybeSingle();
         
         if (unit) io.emit('unit_updated', unit);
       }
