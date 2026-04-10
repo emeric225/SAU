@@ -156,26 +156,46 @@ export default function UnitPage() {
   /* ── Position sync to dashboard ─────────────────────────────────── */
   usePositionSync(unit?.id ?? null, unitStatus, position, heading, speed, emitPosition);
 
-  /* ── Route: fetch when status = en_route + GPS valid ────────────── */
-  const routeRequestedRef = useRef(false);
+  /* ── Route: periodic retry every 5s while en_route + no route ────── */
+  const positionRef = useRef<[number,number] | null>(null);
+  useEffect(() => { positionRef.current = position; }, [position]);
+
   useEffect(() => {
     if (unitStatus !== 'en_route') {
       clearRoute();
-      routeRequestedRef.current = false;
       return;
     }
-    if (routeRequestedRef.current) return;
-    if (!activeMission || !position) return;
-    if (Math.abs(position[0]) < 0.01 && Math.abs(position[1]) < 0.01) return;
 
-    const mission = activeMission;
-    const destLat = Number(mission.lat ?? mission.latitude);
-    const destLng = Number(mission.lng ?? mission.longitude);
-    if (!destLat || !destLng) { console.error('[Route] No coords in mission', mission); return; }
+    const tryFetch = () => {
+      const mission = activeMissionRef.current;
+      const pos = positionRef.current;
+      if (!mission || !pos) { console.log('[Route] Waiting for mission/GPS…'); return; }
+      if (Math.abs(pos[0]) < 0.01 && Math.abs(pos[1]) < 0.01) { console.log('[Route] GPS at 0,0 — not ready'); return; }
 
-    routeRequestedRef.current = true;
-    fetchRoute(position, destLat, destLng);
-  }, [unitStatus, activeMission?.id, position?.[0]?.toFixed(3), position?.[1]?.toFixed(3)]);
+      const destLat = Number(mission.lat ?? mission.latitude);
+      const destLng = Number(mission.lng ?? mission.longitude);
+      console.log('[Route] Coords check — destLat:', destLat, 'destLng:', destLng, 'mission:', mission.id);
+
+      if (!destLat || !destLng || isNaN(destLat) || isNaN(destLng)) {
+        console.error('[Route] ❌ Invalid coords in mission:', JSON.stringify(mission));
+        return;
+      }
+
+      fetchRoute(pos, destLat, destLng);
+    };
+
+    // Try immediately
+    tryFetch();
+
+    // Then retry every 8s until route is loaded (useOSRM internally deduplicates via AbortController)
+    const timer = setInterval(() => {
+      // Stop retrying once we have a route
+      if (route?.geometry) { clearInterval(timer); return; }
+      tryFetch();
+    }, 8000);
+
+    return () => clearInterval(timer);
+  }, [unitStatus, activeMission?.id]);
 
   /* ── Auth ───────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -282,6 +302,11 @@ export default function UnitPage() {
           instruction={guidanceStep.text}
           distanceM={guidanceStep.distanceM}
           missionType={activeMission?.type}
+          onRetry={() => {
+            if (position && destCoords) {
+              fetchRoute(position, destCoords[0], destCoords[1]);
+            }
+          }}
         />
       )}
 

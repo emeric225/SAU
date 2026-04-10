@@ -34,10 +34,10 @@ export function useOSRM() {
     }
 
     // OSRM format: lng,lat;lng,lat
-    const url = `https://router.project-osrm.org/route/v1/driving/${fromPos[1]},${fromPos[0]};${toLng},${toLat}?overview=full&geometries=geojson&steps=true&annotations=true&language=fr`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${fromPos[1]},${fromPos[0]};${toLng},${toLat}?overview=full&geometries=geojson&steps=true&language=fr`;
 
     setLoading(true);
-    console.log('[OSRM] 🗺️ Fetching route…', { from: fromPos, to: [toLat, toLng] });
+    console.log('[OSRM] 🗺️ Fetching:', url.substring(0, 120));
 
     for (let attempt = 0; attempt <= 3; attempt++) {
       try {

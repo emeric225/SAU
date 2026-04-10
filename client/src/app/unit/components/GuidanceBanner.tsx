@@ -8,6 +8,7 @@ interface GuidanceBannerProps {
   instruction: string;
   distanceM: number;
   missionType?: string;
+  onRetry?: () => void;
 }
 
 function formatDist(m: number) {
@@ -17,7 +18,7 @@ function formatDist(m: number) {
 }
 
 export const GuidanceBanner: React.FC<GuidanceBannerProps> = ({
-  status, instruction, distanceM, missionType,
+  status, instruction, distanceM, missionType, onRetry,
 }) => {
   const isEnRoute = status === 'en_route';
   const dist = formatDist(distanceM);
@@ -55,15 +56,24 @@ export const GuidanceBanner: React.FC<GuidanceBannerProps> = ({
             {dist}
           </div>
         )}
-        <div style={{
-          flex: 1,
+        <div style={{ flex: 1,
           fontSize: dist ? 17 : 18,
           fontWeight: 700,
           color: '#f1f5f9',
           lineHeight: 1.3,
         }}>
-          {instruction || (isEnRoute ? 'Route en cours de calcul…' : 'En attente d\'actions')}
+          {instruction || (isEnRoute ? 'Calcul de l\'itinéraire…' : 'En attente d\'actions')}
         </div>
+        {!instruction && isEnRoute && onRetry && (
+          <button
+            onClick={onRetry}
+            style={{
+              padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.5)',
+              background: 'rgba(59,130,246,0.15)', color: '#60a5fa',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >🔄 Forcer</button>
+        )}
       </div>
 
       {/* Progress glow bar */}
