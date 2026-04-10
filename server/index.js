@@ -322,41 +322,52 @@ app.post('/api/stations/status/:id', async (req, res) => {
 
 // Login
 app.post('/api/auth/login', async (req, res) => {
-  const { stationId, password } = req.body;
-  
-  // 1. Try to find if the ID belongs to a Unit
-  const { data: unit } = await supabase.from('units').select('*').eq('id', stationId).single();
-  if (unit) {
-    const { data: activeAlert } = await supabase
-      .from('alerts')
-      .select('*')
-      .or(`assigned_unit_id.eq.${unit.id},and(station_id.eq.${unit.station_id},status.in.(dispatched,on_site))`)
-      .neq('status', 'resolved')
-      .order('created_at', { ascending: false })
-      .limit(1)
-    let activeAlertData = activeAlert && activeAlert.length > 0 ? activeAlert[0] : null;
+  try {
+    const { stationId, password } = req.body || {};
     
-    // Auto-fix: if the unit thinks it is deployed but there is no active mission
-    if (!activeAlertData && unit.status !== 'available') {
-        const { data: updatedUnit } = await supabase.from('units').update({ status: 'available' }).eq('id', unit.id).select().single();
-        if (updatedUnit) unit.status = updatedUnit.status;
+    if (!stationId) {
+       return res.status(400).json({ error: 'ID non fourni' });
     }
 
-    return res.json({ success: true, station: unit, isUnit: true, currentMission: activeAlertData || null });
-  }
-  
-  if (stationId === 'admin') {
-    if (password !== 'sau_admin2026') return res.status(401).json({ error: 'Mot de passe QG incorrect' });
-    return res.json({ success: true, station: { id: 'admin', name: 'QG Central' } });
-  }
+    // 1. Try to find if the ID belongs to a Unit
+    const { data: unit, error: unitErr } = await supabase.from('units').select('*').eq('id', stationId).maybeSingle();
+    
+    if (unit) {
+      const { data: activeAlert } = await supabase
+        .from('alerts')
+        .select('*')
+        .or(`assigned_unit_id.eq.${unit.id},and(station_id.eq.${unit.station_id},status.in.(dispatched,on_site))`)
+        .neq('status', 'resolved')
+        .order('created_at', { ascending: false })
+        .limit(1);
+        
+      let activeAlertData = activeAlert && activeAlert.length > 0 ? activeAlert[0] : null;
+      
+      // Auto-fix: if the unit thinks it is deployed but there is no active mission
+      if (!activeAlertData && unit.status !== 'available') {
+          const { data: updatedUnit } = await supabase.from('units').update({ status: 'available' }).eq('id', unit.id).select().maybeSingle();
+          if (updatedUnit) unit.status = updatedUnit.status;
+      }
 
-  const { data: station } = await supabase.from('stations').select('*').eq('id', stationId).single();
-  if (station) {
-    if (password !== 'pompiers119') return res.status(401).json({ error: 'Mot de passe caserne incorrect' });
-    return res.json({ success: true, station: station });
+      return res.json({ success: true, station: unit, isUnit: true, currentMission: activeAlertData || null });
+    }
+    
+    if (stationId === 'admin') {
+      if (password !== 'sau_admin2026') return res.status(401).json({ error: 'Mot de passe QG incorrect' });
+      return res.json({ success: true, station: { id: 'admin', name: 'QG Central' } });
+    }
+
+    const { data: station, error: stErr } = await supabase.from('stations').select('*').eq('id', stationId).maybeSingle();
+    if (station) {
+      if (password !== 'pompiers119') return res.status(401).json({ error: 'Mot de passe caserne incorrect' });
+      return res.json({ success: true, station: station });
+    }
+    
+    res.status(401).json({ error: 'Identifiant invalide ou inexistant' });
+  } catch (error) {
+    console.error('[SAU LOGIN ERROR]', error);
+    res.status(500).json({ error: 'Erreur interne du serveur lors de la connexion' });
   }
-  
-  res.status(401).json({ error: 'Identifiant invalide' });
 });
 
 // Sockets
