@@ -95,20 +95,33 @@ export const TacticalMapEngine: React.FC<TacticalMapProps> = ({
         }
 
         // Always check layers if they exist - MapLibre sometimes clears layers but keeps sources during style changes
+        // Adding casing (glow effect)
+        if (!map.getLayer('sau-route-glow')) {
+          map.addLayer({
+            id: 'sau-route-glow', type: 'line', source: 'sau-route-src',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': '#3b82f6', 'line-width': 22, 'line-opacity': 0.25, 'line-blur': 10 },
+          });
+        }
         if (!map.getLayer('sau-route-casing')) {
           map.addLayer({
             id: 'sau-route-casing', type: 'line', source: 'sau-route-src',
             layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#1e3a8a', 'line-width': 18, 'line-opacity': 0.4 },
+            paint: { 'line-color': '#1e3a8a', 'line-width': 14, 'line-opacity': 0.6 },
           });
         }
         if (!map.getLayer('sau-route-line')) {
           map.addLayer({
             id: 'sau-route-line', type: 'line', source: 'sau-route-src',
             layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#3b82f6', 'line-width': 8, 'line-opacity': 1 },
+            paint: { 'line-color': '#60a5fa', 'line-width': 7, 'line-opacity': 1 },
           });
         }
+
+        // Force to top if necessary (rarely needed for dark_all but safe)
+        if (map.getLayer('sau-route-line')) map.moveLayer('sau-route-glow');
+        if (map.getLayer('sau-route-line')) map.moveLayer('sau-route-casing');
+        if (map.getLayer('sau-route-line')) map.moveLayer('sau-route-line');
       } catch (err) { 
         console.warn('[TacticalMap] Layer sync error:', err);
       }

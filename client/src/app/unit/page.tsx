@@ -166,30 +166,57 @@ export default function UnitTacticalPage() {
 
     if (!activeMission || !position || routeFetchedRef.current) return;
 
-    const { latitude, longitude, lat, lng, location } = activeMission;
-    const destLat = Number(lat ?? latitude ?? location?.lat);
-    const destLng = Number(lng ?? longitude ?? location?.lng);
+    // GPS Guard: Ignore fetch if position is still at 0,0 or undefined
+    if (Math.abs(position[0]) < 0.1 && Math.abs(position[1]) < 0.1) {
+      console.warn('[TacticalOSRM] Waiting for real GPS fix before fetching route.');
+      return;
+    }
+
+    // Robust Coordinate Parsing
+    let destLat, destLng;
+    try {
+      const loc = typeof activeMission.location === 'string' ? JSON.parse(activeMission.location) : activeMission.location;
+      destLat = Number(activeMission.lat ?? activeMission.latitude ?? loc?.lat);
+      destLng = Number(activeMission.lng ?? activeMission.longitude ?? loc?.lng);
+    } catch (e) {
+      destLat = Number(activeMission.lat ?? activeMission.latitude);
+      destLng = Number(activeMission.lng ?? activeMission.longitude);
+    }
     
-    if (!destLat || !destLng || isNaN(destLat)) return;
+    if (!destLat || !destLng || isNaN(destLat)) {
+       console.error('[TacticalOSRM] Invalid destination coords:', destLat, destLng);
+       return;
+    }
 
     const url = `https://router.project-osrm.org/route/v1/driving/${position[1]},${position[0]};${destLng},${destLat}?overview=full&geometries=geojson&steps=true&language=fr`;
     
     console.log('[TacticalOSRM] Fetching route to:', destLat, destLng);
     routeFetchedRef.current = true;
-    fetch(url)
-      .then(res => res.json())
-      .then(data => {
-        if (data.routes?.[0]) {
-          console.log('[TacticalOSRM] Route received');
-          setRouteGeoJSON(data.routes[0].geometry);
-          setRouteSteps(data.routes[0].legs[0].steps);
-        } else {
-          console.warn('[TacticalOSRM] No route found in response');
-        }
-      }).catch(err => { 
-        console.error('[TacticalOSRM] Fetch error', err);
-        routeFetchedRef.current = false; 
-      });
+    
+    const fetchRoute = (retryCount = 0) => {
+      fetch(url)
+        .then(res => {
+           if (!res.ok) throw new Error('OSRM network error');
+           return res.json();
+        })
+        .then(data => {
+          if (data.routes?.[0]) {
+            console.log('[TacticalOSRM] Route received successfully');
+            setRouteGeoJSON(data.routes[0].geometry);
+            setRouteSteps(data.routes[0].legs[0].steps);
+          } else {
+            console.warn('[TacticalOSRM] No route in response');
+            if (retryCount < 2) setTimeout(() => fetchRoute(retryCount + 1), 2000);
+          }
+        })
+        .catch(err => { 
+          console.error('[TacticalOSRM] Fetch error', err);
+          if (retryCount < 2) setTimeout(() => fetchRoute(retryCount + 1), 2000);
+          else routeFetchedRef.current = false; 
+        });
+    };
+
+    fetchRoute();
   }, [currentStatus, activeMission?.id, !!position]);
 
   // Handle Route Guidance Update
