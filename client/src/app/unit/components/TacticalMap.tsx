@@ -171,42 +171,6 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
   const animRef = useRef<number>(0);
   const currentPosRef = useRef<{ lat: number; lng: number; heading: number } | null>(null);
 
-  // Simple snap-to-road utility
-  function getSnappedPosition(rawLngLat: [number, number], geojson: any): [number, number] {
-    if (!geojson || geojson.type !== 'LineString' || !geojson.coordinates || geojson.coordinates.length < 2) {
-      return rawLngLat;
-    }
-    const [px, py] = rawLngLat;
-    let minDist = Infinity;
-    let snapped: [number, number] = rawLngLat;
-
-    for (let i = 0; i < geojson.coordinates.length - 1; i++) {
-      const [ax, ay] = geojson.coordinates[i];
-      const [bx, by] = geojson.coordinates[i + 1];
-      
-      const dx = bx - ax;
-      const dy = by - ay;
-      if (dx === 0 && dy === 0) continue;
-      
-      const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
-      const clampedT = Math.max(0, Math.min(1, t));
-      const projX = ax + clampedT * dx;
-      const projY = ay + clampedT * dy;
-      
-      const distSq = (px - projX) * (px - projX) + (py - projY) * (py - projY);
-      if (distSq < minDist) {
-        minDist = distSq;
-        snapped = [projX, projY];
-      }
-    }
-    
-    // approx 1 degree = 111km. 0.0005 deg = ~55 meters tolerance
-    if (minDist < 0.0005 * 0.0005) {
-      return snapped;
-    }
-    return rawLngLat;
-  }
-
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
@@ -214,9 +178,9 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     let targetLngLat: [number, number] = [center[1], center[0]];
     let targetHeading = heading || 0;
 
-    // SNAP TO ROAD
-    if (navMode && routeGeoJSON) {
-      targetLngLat = getSnappedPosition(targetLngLat, routeGeoJSON);
+    // Lock rotation when stationary to prevent GPS noise jitter
+    if (navMode && speed !== undefined && speed < 1.0 && currentPosRef.current) {
+      targetHeading = currentPosRef.current.heading;
     }
 
     if (!currentPosRef.current) {

@@ -4,30 +4,46 @@ export function processNavigation(lngLat: [number, number], geojson: any) {
   }
   
   const [px, py] = lngLat;
+  // Local Equirectangular projection scale
+  const cosLat = Math.cos(py * Math.PI / 180);
+  
+  const localX = (lng: number) => (lng - px) * cosLat;
+  const localY = (lat: number) => (lat - py);
+
   let minDist = Infinity;
-  let snapped: [number, number] = lngLat;
+  let snappedLocal: [number, number] = [0, 0];
   let bestSegment = 0;
 
   for (let i = 0; i < geojson.coordinates.length - 1; i++) {
-    const [ax, ay] = geojson.coordinates[i];
-    const [bx, by] = geojson.coordinates[i + 1];
+    const ax = localX(geojson.coordinates[i][0]);
+    const ay = localY(geojson.coordinates[i][1]);
+    const bx = localX(geojson.coordinates[i + 1][0]);
+    const by = localY(geojson.coordinates[i + 1][1]);
     
     const dx = bx - ax;
     const dy = by - ay;
     if (dx === 0 && dy === 0) continue;
     
-    const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
-    const clampedT = Math.max(0, Math.min(1, t));
+    // P is at [0,0] in local space
+    const t = (0 - ax) * dx + (0 - ay) * dy;
+    const lenSq = dx * dx + dy * dy;
+    const clampedT = Math.max(0, Math.min(1, t / lenSq));
+    
     const projX = ax + clampedT * dx;
     const projY = ay + clampedT * dy;
     
-    const distSq = (px - projX) * (px - projX) + (py - projY) * (py - projY);
+    const distSq = projX * projX + projY * projY;
     if (distSq < minDist) {
       minDist = distSq;
-      snapped = [projX, projY];
+      snappedLocal = [projX, projY];
       bestSegment = i;
     }
   }
+
+  // Un-project back to WGS84
+  const snappedLng = px + snappedLocal[0] / cosLat;
+  const snappedLat = py + snappedLocal[1];
+  const snapped: [number, number] = [snappedLng, snappedLat];
 
   // Dynamic trimming: Remove path behind the vehicle
   const trimmedCoords = [snapped];
@@ -35,9 +51,8 @@ export function processNavigation(lngLat: [number, number], geojson: any) {
     trimmedCoords.push(geojson.coordinates[i]);
   }
 
-  // Approx conversion from degrees to meters (very rough, but sufficient for 30m threshold).
-  // Euclidean distance approximation.
-  const distanceMeters = Math.sqrt(minDist) * 111000;
+  // 1 degree ~ 111,139 meters at the equator/meridian.
+  const distanceMeters = Math.sqrt(minDist) * 111139;
 
   return {
     snapped,

@@ -116,18 +116,21 @@ export default function UnitPage() {
 
   /* ── Dynamic Navigation Engine ──────────────────────────────────────── */
   const [trimmedRoute, setTrimmedRoute] = useState<any>(null);
+  const [snappedCenter, setSnappedCenter] = useState<[number, number] | null>(null);
   const lastBeepRef = useRef<string>('');
 
   useEffect(() => {
     if (!position || !route?.geometry || unitStatus !== 'en_route') {
       setTrimmedRoute(route?.geometry || null);
+      setSnappedCenter(null);
       if (unitStatus !== 'en_route') setGuidanceStep({ text: '', distanceM: 0 });
       return;
     }
 
     // 1. Process Geometry & Snap (position is [lat, lng], navigation.ts expects [lng, lat])
-    const { distanceMeters, trimmedGeoJSON } = processNavigation([position[1], position[0]], route.geometry);
+    const { distanceMeters, trimmedGeoJSON, snapped } = processNavigation([position[1], position[0]], route.geometry);
     setTrimmedRoute(trimmedGeoJSON);
+    setSnappedCenter([snapped[1], snapped[0]]); // Pass back as [lat, lng]
 
     // 2. Off-Route Recalculation (if deviated > 30m)
     if (distanceMeters > 30) {
@@ -312,7 +315,7 @@ export default function UnitPage() {
       {/* ── Map ── */}
       {position ? (
         <TacticalMap
-          center={position}
+          center={snappedCenter || position}
           heading={heading}
           speed={speed}
           navMode={unitStatus === 'en_route'}
