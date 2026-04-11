@@ -109,7 +109,7 @@ export default function UnitPage() {
   const audio = useAudio();
 
   /* ── OSRM ─────────────────────────────────────────────────────────── */
-  const { route, fetchRoute, clearRoute } = useOSRM();
+  const { route, fetchRoute, clearRoute, loading } = useOSRM();
 
   /* Current navigation guidance step */
   const [guidanceStep, setGuidanceStep] = useState<{ text: string; distanceM: number }>({ text: '', distanceM: 0 });
@@ -118,6 +118,7 @@ export default function UnitPage() {
   const [trimmedRoute, setTrimmedRoute] = useState<any>(null);
   const [snappedCenter, setSnappedCenter] = useState<[number, number] | null>(null);
   const lastBeepRef = useRef<string>('');
+  const lastRecalcRef = useRef<number>(0);
 
   useEffect(() => {
     if (!position || !route?.geometry || unitStatus !== 'en_route') {
@@ -134,10 +135,14 @@ export default function UnitPage() {
 
     // 2. Off-Route Recalculation (if deviated > 30m)
     if (distanceMeters > 30) {
-      console.log(`[Navigation] ⚠️ Hors tracé (${Math.round(distanceMeters)}m) -> Recalcul complet...`);
-      const targetMission = activeMissionRef.current;
-      if (targetMission) {
-        fetchRoute(position, Number(targetMission.lat || targetMission.latitude), Number(targetMission.lng || targetMission.longitude));
+      const now = Date.now();
+      if (!loading && now - lastRecalcRef.current > 2000) {
+        lastRecalcRef.current = now;
+        console.log(`[Navigation] ⚠️ Hors tracé (${Math.round(distanceMeters)}m) -> Recalcul automatique...`);
+        const targetMission = activeMissionRef.current;
+        if (targetMission) {
+          fetchRoute(position, Number(targetMission.lat || targetMission.latitude), Number(targetMission.lng || targetMission.longitude));
+        }
       }
       return;
     }

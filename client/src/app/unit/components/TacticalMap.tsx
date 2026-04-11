@@ -1,6 +1,8 @@
 'use client';
 import React, { useEffect, useRef } from 'react';
 
+import { processNavigation } from '../utils/navigation';
+
 interface TacticalMapProps {
   center: [number, number];   // [lat, lng]
   heading: number;
@@ -170,6 +172,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
   /* ── 4. Smooth Marker Interpolation & Hardware Camera Sync ───────────────── */
   const animRef = useRef<number>(0);
   const currentPosRef = useRef<{ lat: number; lng: number; heading: number } | null>(null);
+  const smoothParams = useRef<{ zoom: number, bearing: number } | null>(null);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -208,6 +211,11 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     // Handle heading wrap
     let deltaHdn = ((targetHeading - startHeading + 540) % 360) - 180;
     
+    // EMA smoothing state (lazy init)
+    if (!smoothParams.current) {
+       smoothParams.current = { zoom: navMode ? 18.5 : 16, bearing: navMode ? targetHeading : 0 };
+    }
+
     const duration = 1000; // Matches typical GPS 1s update rate
     const startTime = performance.now();
 
@@ -217,7 +225,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       let progress = (time - startTime) / duration;
       if (progress > 1) progress = 1;
       
-      // Linear interpolation to prevent easeTo rubber-banding at 1hz
+      // 1. Position/Heading Interpolation
       const currentLat = startLat + (targetLngLat[1] - startLat) * progress;
       const currentLng = startLng + (targetLngLat[0] - startLng) * progress;
       const currentHdn = startHeading + deltaHdn * progress;
@@ -229,17 +237,33 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
 
       currentPosRef.current = { lat: currentLat, lng: currentLng, heading: currentHdn };
 
-      // HARDWARE 60FPS CAMERA SYNC
+      // 2. 60FPS DYNAMIC TRIMMING (Route evaporation)
+      if (navMode && routeGeoJSON) {
+        const { trimmedGeoJSON } = processNavigation([currentLng, currentLat], routeGeoJSON);
+        const source = map.getSource('sau-route');
+        if (source) source.setData({ type: 'Feature', geometry: trimmedGeoJSON, properties: {} });
+      }
+
+      // 3. HARDWARE 60FPS CAMERA SYNC with EMA Smoothing
       if (isFollowing) {
         map.setCenter([currentLng, currentLat]);
+        
+        const params = smoothParams.current!;
         if (navMode) {
-          // Hardware native bearing rotation
-          map.setBearing(currentHdn);
+          const targetZoom = (speed && speed * 3.6 > 15) ? 17.5 : 18.8;
+          params.zoom = params.zoom * 0.96 + targetZoom * 0.04; // Very slow hysteresis
+          
+          params.bearing = params.bearing + ((currentHdn - params.bearing + 540) % 360 - 180) * 0.15;
+
+          map.setBearing(params.bearing);
           map.setPitch(50);
-          map.setZoom((speed && speed * 3.6 > 12) ? 17.5 : 18.5);
+          map.setZoom(params.zoom);
           map.setPadding({ top: Math.round(window.innerHeight * 0.55), bottom: 0, left: 0, right: 0 });
         } else {
-          map.setBearing(0);
+          params.zoom = params.zoom * 0.9 + 16 * 0.1;
+          params.bearing = params.bearing + ((0 - params.bearing + 540) % 360 - 180) * 0.1;
+          map.setBearing(params.bearing);
+          map.setZoom(params.zoom);
           map.setPitch(0);
         }
       }
@@ -248,7 +272,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
     };
     animRef.current = requestAnimationFrame(animate);
 
-  }, [center[0], center[1], heading, speed, navMode, isFollowing]);
+  }, [center[0], center[1], heading, speed, navMode, isFollowing, routeGeoJSON]);
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
