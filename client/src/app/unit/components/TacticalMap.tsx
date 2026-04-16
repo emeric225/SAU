@@ -10,6 +10,7 @@ interface TacticalMapProps {
   navMode: boolean;
   destination?: [number, number] | null;
   routeGeoJSON?: any;
+  stations?: any[];
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -17,12 +18,13 @@ interface TacticalMapProps {
    glow route line, snap-to-road visual, destination marker.
 ───────────────────────────────────────────────────────────────────────────── */
 export const TacticalMap: React.FC<TacticalMapProps> = ({
-  center, heading, speed, navMode, destination, routeGeoJSON,
+  center, heading, speed, navMode, destination, routeGeoJSON, stations = [],
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<any>(null);
   const vehicleRef   = useRef<any>(null);
   const destRef      = useRef<any>(null);
+  const stationsRef  = useRef<any[]>([]);
   const loadedRef    = useRef(false);
   const pendingRoute = useRef<any>(null); // buffer route until map loads
 
@@ -151,6 +153,48 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       }
     })();
   }, [destination?.[0], destination?.[1]]);
+
+  /* ── 4. Stations Markers ─────────────────────────────────────────────── */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+
+    (async () => {
+      const mgl = (await import('maplibre-gl')).default;
+      
+      // Clear old
+      stationsRef.current.forEach(m => m.remove());
+      stationsRef.current = [];
+
+      // Add new
+      stations.forEach(st => {
+        const el = document.createElement('div');
+        el.className = 'station-marker-container';
+        el.innerHTML = `
+          <div style="
+            display: flex; flex-direction: column; align-items: center; 
+            padding: 4px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+          ">
+            <div style="
+              width: 32px; height: 32px; background: rgba(15, 23, 42, 0.9);
+              border: 2px solid #ef4444; border-radius: 8px;
+              display: flex; alignItems: center; justifyContent: center;
+              font-size: 18px; color: #fff;
+            ">🚒</div>
+            <div style="
+              margin-top: 4px; padding: 2px 6px; background: rgba(0,0,0,0.7);
+              color: #fff; font-size: 9px; font-weight: 900; border-radius: 4px;
+              white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px;
+            ">${st.name}</div>
+          </div>
+        `;
+        const marker = new mgl.Marker({ element: el })
+          .setLngLat([st.lng, st.lat])
+          .addTo(map);
+        stationsRef.current.push(marker);
+      });
+    })();
+  }, [stations]);
 
   const [isFollowing, setIsFollowing] = React.useState(true);
 

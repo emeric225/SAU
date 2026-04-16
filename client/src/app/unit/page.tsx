@@ -98,6 +98,7 @@ export default function UnitPage() {
   const [viewingPhoto, setViewingPhoto]   = useState<string | null>(null);
   const [isConnected, setIsConnected]     = useState(false);
   const [audioReady, setAudioReady]       = useState(false);
+  const [stations, setStations]           = useState<any[]>([]);
 
   /* Keep ref in sync for async closures */
   useEffect(() => { activeMissionRef.current = activeMission; }, [activeMission]);
@@ -250,6 +251,20 @@ export default function UnitPage() {
     } catch { localStorage.removeItem('sau_unit'); }
   }, []);
 
+  /* ── Fetch stations for context ─────────────────────────────────── */
+  useEffect(() => {
+    const fetchStations = async () => {
+      try {
+        const res = await fetch('/api/stations');
+        const data = await res.json();
+        if (Array.isArray(data)) setStations(data);
+      } catch (e) {
+        console.error('[Stations] Fetch error:', e);
+      }
+    };
+    fetchStations();
+  }, []);
+
   const loginUnit = async (stationId: string) => {
     setLoginLoading(true);
     setLoginError('');
@@ -326,6 +341,7 @@ export default function UnitPage() {
           navMode={unitStatus === 'en_route'}
           destination={destCoords}
           routeGeoJSON={trimmedRoute ?? null}
+          stations={stations}
         />
       ) : (
         <div style={{
