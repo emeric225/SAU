@@ -151,8 +151,21 @@ export default function Dashboard() {
 
     socket.on('alert_updated', (updated: any) => {
       setAlerts(prev => {
-        const exists = prev.some(a => a.id === updated.id);
-        const next = exists ? prev.map(a => a.id === updated.id ? { ...a, ...updated } : a) : [updated, ...prev];
+        const index = prev.findIndex(a => a.id === updated.id);
+        const oldAlert = index !== -1 ? prev[index] : null;
+
+        // NEW: Trigger siren if Central HQ newly assigned THIS station
+        if (userRef.current?.id !== 'admin' && updated.station_id === userRef.current?.id) {
+          // If it wasn't assigned to us before, or had no station
+          if (!oldAlert || oldAlert.station_id !== updated.station_id) {
+            setNewAlertPopup(updated);
+            playSiren();
+          }
+        }
+
+        const next = index !== -1 
+          ? prev.map(a => a.id === updated.id ? { ...a, ...updated } : a) 
+          : [updated, ...prev];
         return next.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       });
       setSelectedAlert((prev: any) => prev?.id === updated.id ? { ...prev, ...updated } : prev);

@@ -46,9 +46,6 @@ export default function Home() {
       </div>
 
       <footer className={styles.footer}>
-        <Link href="/dashboard" className={styles.adminLink}>
-          Accès Dashboard Tactique →
-        </Link>
       </footer>
     </main>
   );
